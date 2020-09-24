@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../Datasets"
+		}
+	],
+	"settings": {
+		"editor.tabSize": 2
+	}
+}
