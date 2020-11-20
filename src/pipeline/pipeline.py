@@ -11,11 +11,37 @@ class Pipeline():
     self._loader = loader
 
   def _get_init_state(self):
-    # here goes the pipeline initalization code 
+    # load first two frames 
+    # feature extraction and matching
+    # fill the two list with candidates and landmarks (5 point algo) 
+    # init the trajektory
     return State()
 
   def step(self):
-    # feature extraction what so ever udating the state 
+    # load a new frame 
+    # feature extraction
+    # grouping into candidates and matched ones
+    # triangulation 
+    # trajektory update (append new pose)
+
+    # check if the frame should be used. min trajektory distance and angle
+
+    # if we add it: 
+    # update candidates list
+    # update the landmark list
+     
+    # Refine Landmarks maybe based on new obs(HOW TO UPDATE THE LANDMARKS CORRECTLY)
+
+    # Move candidates to landmark list
+    # Delete unused candidates
+    # Delete not used landmarks from landmark list
+
+    # Visu and state plotting
+    #  Overview of the lists
+    #  2D map from the top 
+    #  Current landmarks projected onto the image for Two Frames with configurable delta T!
+    #  reprojection error of the landmarks
+    
     self._t += 1
 
   def full_run(self):
@@ -26,3 +52,5 @@ class Pipeline():
         logging.info('Pipeline run ' + str( self._t) +'/'+str( len(self._loader)))
        
       self.step()
+
+  
