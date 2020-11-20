@@ -11,7 +11,7 @@ class Camera():
 
   def __str__(self):
     return 'Camera with K: ' + str(self._K)
-
+    
   @classmethod
   def from_K(self,K):
-    return Camera(fx=K[0,0], fy=K[1,1],cx=K[2,0],cy=K[2,1],)
+    return Camera(fx=K[0,0], fy=K[1,1],cx=K[2,0],cy=K[2,1])

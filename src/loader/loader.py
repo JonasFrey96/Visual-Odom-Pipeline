@@ -42,12 +42,14 @@ class Loader():
     elif self._name == 'kitti':
       p = base + '/00/image_0'
       self._image_paths = [str(p) for p in Path(p).rglob('*.png')]
+      
       ar = np.reshape( np.loadtxt(base+'/poses/00.txt' ), (-1,3,4))
       self._poses = np.zeros( (ar.shape[0],4,4) )
       self._poses[:,3,3] = 1
       self._poses[:,:3,:] = ar
     else:
       raise Exception
+    self._image_paths.sort()
     
     return self._camera, self._poses, self._image_paths
 
