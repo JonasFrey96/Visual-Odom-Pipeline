@@ -1,0 +1,6 @@
+kitti:
+  path: /media/scratch1/jonfrey/datasets_visual_odom/kitti
+parking:
+  path: /media/scratch1/jonfrey/datasets_visual_odom/parking
+mala:
+  path: /media/scratch1/jonfrey/datasets_visual_odom/malaga-urban-dataset-extract-07

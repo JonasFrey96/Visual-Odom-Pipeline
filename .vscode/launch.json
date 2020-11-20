@@ -11,7 +11,7 @@
 			"program": "${file}",
 			"cwd": "/home/jonas/Documents/Repos/Visual-Odom-Pipeline",
 			"console": "integratedTerminal",
-			"pythonPath": "/home/jonas/anaconda3/envs/VOP/bin/python"
+			"pythonPath": "/home/jonfrey/miniconda3/envs/track_latest/bin/python"
 		}
 	]
 }
