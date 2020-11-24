@@ -3,7 +3,8 @@ from state import State
 from visu import Visualizer
 import logging
 from extractor import Extractor
-from state import Keypoint
+from state import Keypoint, Trajectory
+
 class Pipeline():
   def __init__(self, loader):
     self._t = 0
@@ -27,14 +28,19 @@ class Pipeline():
 
     # create the landmarks list
     landmarks = []
+    landmarks_cor = []
     used_idx0 = []
     used_idx1 = []
     for m in matches:
       # TODO calculate the p=NONE
       l = Keypoint(0,0,2, uv = kp_0[m.queryIdx].pt, p=None, des = desc_0[m.queryIdx])
+      l_cor = Keypoint(0,0,2, uv = kp_1[m.trainIdx].pt, p=None, des = desc_1[m.trainIdx])
       used_idx0.append( m.queryIdx )
       used_idx1.append( m.trainIdx )
       landmarks.append(l)
+      landmarks_cor.append(l_cor)
+
+    H0 = self._extractor.camera_pose(self._loader.getCamera(), landmarks, landmarks_cor)
 
     # create the candidate list 
     id0 = np.arange(0, len(kp_0) )
@@ -57,7 +63,7 @@ class Pipeline():
     H_0[3,3] = 1
     H_1 = H_0 # TODO init H1
     tra = Trajectory([H_0,H_1])
-    
+
     return State(landmarks, candidates, tra)
 
   def step(self):

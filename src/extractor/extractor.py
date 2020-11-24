@@ -43,7 +43,20 @@ class Extractor():
 
     
     return good
-    
+  
+  def camera_pose(self,K, land1, land2):
+    # Compute essential matrix
+    kp_1_pts = np.array([kp.uv for kp in land1]).astype(np.float32)
+    kp_2_pts = np.array([kp.uv for kp in land2]).astype(np.float32)
+    E, mask = cv2.findEssentialMat(kp_1_pts, kp_2_pts, K, prob=0.999, method=cv2.RANSAC, mask=None, threshold=1)
+    # Remove outliers and recover pose
+    kp_1_pts = kp_1_pts[mask, :]
+    kp_2_pts = kp_2_pts[mask, :]
+    retval, R, t, mask = cv2.recoverPose(E, kp_1_pts, kp_2_pts, K)
+    H = np.eye(4)
+    H[:3,:3] = R
+    H[:3, 3] = t[:,0]
+    return H
 
 if __name__ == "__main__":
   pass

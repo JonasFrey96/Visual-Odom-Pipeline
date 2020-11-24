@@ -9,7 +9,3 @@ class State():
     if trajectory == None:
       self._trajectory = Trajectory()
   
-  @classmethod
-  def from_init_res(res):
-    # process res to init lists 
-    return State('a','b','c')
