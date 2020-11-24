@@ -14,7 +14,6 @@ class Loader():
     self._camera, self._poses, self.image_paths = self._loadData()
     self._length = self._poses.shape[0] 
     
-
   def __str__(self):
     return self._name
 
@@ -56,8 +55,7 @@ class Loader():
   def getImage(self, id):
     if id >= self._length or id < 0: 
        raise AssertionError
-
-    return np.float32( cv2.imread(self._image_paths[id]) ) #Image.open( self._image_paths[id] )
+    return cv2.imread(self._image_paths[id] , cv2.IMREAD_GRAYSCALE) #Image.open( self._image_paths[id] )
 
   def getPose(self, id):
     if id >= self._length or id < 0: 
@@ -74,7 +72,11 @@ class Loader():
   def getCamera(self):
     return self._camera
 
-
+  def getInit(self):
+    """
+    Returns Tuple with first and secound index
+    """
+    return tuple( self._cfg[self._name]['init'] )
 if __name__ == "__main__":
   with open('/home/jonfrey/Visual-Odom-Pipeline/src/loader/datasets.yml') as f:
     doc = yaml.load(f, Loader=yaml.FullLoader)

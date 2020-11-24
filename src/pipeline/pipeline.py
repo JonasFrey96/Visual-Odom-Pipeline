@@ -2,20 +2,63 @@ import numpy as np
 from state import State
 from visu import Visualizer
 import logging
-
+from extractor import Extractor
+from state import Keypoint
 class Pipeline():
   def __init__(self, loader):
     self._t = 0
-    self._state = self._get_init_state() 
-    self._visu = Visualizer() # current frame, reproject the state (current landmarks), trajecktory plot from top XY
     self._loader = loader
+    self._extractor = Extractor()
+    self._visu = Visualizer() # current frame, reproject the state (current landmarks), trajecktory plot from top XY
+    self._state = self._get_init_state() 
+    
 
   def _get_init_state(self):
-    # load first two frames 
-    # feature extraction and matching
+    t0, t1 = self._loader.getInit()
+    print(t0,t1)
+    img0, h0 = self._loader.getFrame(t0)
+    img1, h1 = self._loader.getFrame(t1)
+
+    # feature extraction 
+    kp_0,desc_0 = self._extractor.extract(img0)
+    kp_1,desc_1 = self._extractor.extract(img1)
+    # mat  # load first two frames 
+    matches = self._extractor.match(kp_0,desc_0,kp_1,desc_1)
+
+    # create the landmarks list
+    landmarks = []
+    used_idx0 = []
+    used_idx1 = []
+    for m in matches:
+      # TODO calculate the p=NONE
+      l = Keypoint(0,0,2, uv = kp_0[m.queryIdx].pt, p=None, des = desc_0[m.queryIdx])
+      used_idx0.append( m.queryIdx )
+      used_idx1.append( m.trainIdx )
+      landmarks.append(l)
+
+    # create the candidate list 
+    id0 = np.arange(0, len(kp_0) )
+    id1 = np.arange(0, len(kp_1) )
+    cand_id0 = np.delete(id0, np.array( used_idx0) )
+    cand_id1 = np.delete(id1, np.array( used_idx1) )
+    candidates = []
+    for i in range(cand_id0.shape[0]):
+      c = Keypoint(0,0,1, uv = kp_0[cand_id0[i]].pt, p=None, des = desc_0[cand_id0[i]])
+      candidates.append(c)
+    for i in range(cand_id1.shape[0]):
+      c = Keypoint(0,0,1, uv = kp_1[cand_id1[i]].pt, p=None, des = desc_1[cand_id1[i]])
+      candidates.append(c)
+
     # fill the two list with candidates and landmarks (5 point algo) 
+    
+    
     # init the trajektory
-    return State()
+    H_0 = np.zeros((4,4))
+    H_0[3,3] = 1
+    H_1 = H_0 # TODO init H1
+    tra = Trajectory([H_0,H_1])
+    
+    return State(landmarks, candidates, tra)
 
   def step(self):
     # load a new frame 

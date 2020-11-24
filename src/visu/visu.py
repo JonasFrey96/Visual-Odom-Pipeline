@@ -11,3 +11,7 @@ class Visualizer():
 
   def plot_landmarks(self, landmarks, img, K):
     pass
+
+  def plot_img(self, img, tag='img', store=True):
+    pil_img = Image.fromarray( np.uint8(img) ,'RGB')
+    pil_img.save(self.p + '/' + tag + '.png')
