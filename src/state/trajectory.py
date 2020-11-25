@@ -10,7 +10,7 @@ class Trajectory():
   def __str__(self):
     s = '='*60
     s += f'\nTrajektory Length {len(self)} \n'
-    if len(self)> 2:
+    if len(self)> 1:
       s += f'Start:  \n{self._poses[0]} \n'
       s += f'Stop:  \n{self._poses[-1]} \n'
     s += '='*60
