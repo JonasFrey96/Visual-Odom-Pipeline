@@ -15,15 +15,15 @@ class Pipeline():
 
   def _get_init_state(self):
     t0, t1 = self._loader.getInit()
-    print(t0,t1)
+    print(f"[t0, t1]: {t0},{t1}")
     img0, H0_gt = self._loader.getFrame(t0)
     img1, H1_gt = self._loader.getFrame(t1)
 
     # feature extraction 
-    kp_0,desc_0 = self._extractor.extract(img0)
-    kp_1,desc_1 = self._extractor.extract(img1)
+    kp_0, desc_0 = self._extractor.extract(img0)
+    kp_1, desc_1 = self._extractor.extract(img1)
     # mat  # load first two frames 
-    matches = self._extractor.match(kp_0,desc_0,kp_1,desc_1)
+    matches = self._extractor.match(kp_0, desc_0, kp_1, desc_1)
 
     # create the landmarks list
     landmarks = []
@@ -32,10 +32,10 @@ class Pipeline():
     used_idx1 = []
     for m in matches:
       # TODO calculate the p=NONE
-      l = Keypoint(0,0,2, uv = kp_0[m.queryIdx].pt, p=None, des = desc_0[m.queryIdx])
-      l_cor = Keypoint(0,0,2, uv = kp_1[m.trainIdx].pt, p=None, des = desc_1[m.trainIdx])
-      used_idx0.append( m.queryIdx )
-      used_idx1.append( m.trainIdx )
+      l = Keypoint(0, 0, 2, uv=np.array(kp_0[m.queryIdx].pt), p=None, des=desc_0[m.queryIdx])
+      l_cor = Keypoint(0, 0, 2, uv=np.array(kp_1[m.trainIdx].pt), p=None, des=desc_1[m.trainIdx])
+      used_idx0.append(m.queryIdx)
+      used_idx1.append(m.trainIdx)
       landmarks.append(l)
       landmarks_cor.append(l_cor)
     K = self._loader.getCamera() 
@@ -43,24 +43,26 @@ class Pipeline():
 
     # init the trajektory
     H0 = np.eye((4))
-    self._extractor.triangulate(K,H0, H1, landmarks, landmarks_cor)
+    self._extractor.triangulate(K, H0, H1, landmarks, landmarks_cor)
+
+    # Visualize landmarks
+    self._visu.plot_landmarks(landmarks, img0, K)
 
     # create the candidate list 
     id0 = np.arange(0, len(kp_0) )
     id1 = np.arange(0, len(kp_1) )
-    cand_id0 = np.delete(id0, np.array( used_idx0) )
-    cand_id1 = np.delete(id1, np.array( used_idx1) )
+    cand_id0 = np.delete(id0, np.array(used_idx0))
+    cand_id1 = np.delete(id1, np.array(used_idx1))
     candidates = []
     for i in range(cand_id0.shape[0]):
-      c = Keypoint(0,0,1, uv = kp_0[cand_id0[i]].pt, p=None, des = desc_0[cand_id0[i]])
+      c = Keypoint(0, 0, 1, uv=kp_0[cand_id0[i]].pt, p=None, des=desc_0[cand_id0[i]])
       candidates.append(c)
     for i in range(cand_id1.shape[0]):
-      c = Keypoint(0,0,1, uv = kp_1[cand_id1[i]].pt, p=None, des = desc_1[cand_id1[i]])
+      c = Keypoint(0, 0, 1, uv=kp_1[cand_id1[i]].pt, p=None, des=desc_1[cand_id1[i]])
       candidates.append(c)
 
-    # fill the two list with candidates and landmarks (5 point algo) 
-    
-    tra = Trajectory([H0,H1])
+    # fill the two list with candidates and landmarks (5 point algo)
+    tra = Trajectory([H0, H1])
 
     return State(landmarks, candidates, tra), t1+1
 

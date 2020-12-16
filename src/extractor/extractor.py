@@ -15,6 +15,7 @@ def extract_features(img):
   img2 = cv2.drawKeypoints(img,kp,img, color=(0,255,0), flags=0)
   return kp,des, img2
 
+
 class Extractor():
   def __init__(self,cfg=None):
     self._cfg = cfg
@@ -25,7 +26,7 @@ class Extractor():
   def extract(self, img):
 
     kp_1, desc_1 = self._sift.detectAndCompute(img, None)
-    return kp_1,desc_1
+    return kp_1, desc_1
 
   def match(self, kp_1, desc_1, kp_2, desc_2):
     matches = self._matcher.knnMatch(desc_1, desc_2, k=2)
@@ -79,13 +80,13 @@ class Extractor():
     keyp1 : [type]
         [description]
     """
-    uv0 = np.array([kp.uv for kp in keyp0]).astype(np.float32)[:,None,:]
-    uv1 = np.array([kp.uv for kp in keyp1]).astype(np.float32)[:,None,:]
+    uv0 = np.array([kp.uv for kp in keyp0]).astype(np.float32)[:, None, :]
+    uv1 = np.array([kp.uv for kp in keyp1]).astype(np.float32)[:, None, :]
 
     # Construct projection matrices
-    P_0 = K @ H0[:3,:]
-    P_1 = K @ H1[:3,:]
-    points_4D = cv2.triangulatePoints(P_0, P_1, uv0.T, uv1.T).reshape((4, -1)).T
+    P_0 = (K @ H0[:3,:]).astype(np.float32)
+    P_1 = (K @ H1[:3,:]).astype(np.float32)
+    points_4D = cv2.triangulatePoints(P_0, P_1, uv0, uv1).reshape((4, -1)).T
     points_3D = (points_4D/points_4D[:, 3].reshape((-1, 1)))[:, :3]
     for j, k in enumerate( keyp0 ):
        k.p = points_3D[j] 

@@ -5,7 +5,9 @@ from pathlib import Path
 import os
 import argparse
 import yaml
-import pandas as pd 
+import pandas as pd
+
+
 class Loader():
 
   def __init__(self, name, cfg):
@@ -24,7 +26,7 @@ class Loader():
     cfg = self._cfg[self._name]
     base = cfg['path']
     if self._name == 'parking':
-      print(base, 'WOKRING')
+      print(base, 'WORKING')
       p = base + '/images'
       self._image_paths = [str(p) for p in Path(p).rglob('*.png')]
       ar = np.reshape( np.loadtxt(base+'/poses.txt' ), (-1,3,4))
