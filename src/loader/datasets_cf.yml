@@ -7,7 +7,7 @@ parking:
   path: /media/carter/Samsung_T5/vo_data/parking
   init: 
   - 0
-  - 3
+  - 10
 mala:
   path: /media/carter/Samsung_T5/vo_data/malaga-urban-dataset-extract-07
   init: 

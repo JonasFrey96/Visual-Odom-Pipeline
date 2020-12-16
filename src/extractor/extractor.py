@@ -2,6 +2,8 @@ import numpy as np
 from PIL import Image
 import numpy as np
 import cv2
+from copy import deepcopy
+from itertools import combinations
 from matplotlib import pyplot as plt
 
 def extract_features(img):
@@ -13,15 +15,16 @@ def extract_features(img):
   kp, des = orb.compute(img, kp)
   # draw only keypoints location,not size and orientation
   img2 = cv2.drawKeypoints(img,kp,img, color=(0,255,0), flags=0)
-  return kp,des, img2
+  return kp, des, img2
 
 
 class Extractor():
   def __init__(self,cfg=None):
     self._cfg = cfg
-    self._sift = cv2.SIFT_create(sigma=0.8)
+    self._sift = cv2.SIFT_create()
+    # self._sift = cv2.xfeatures2d.SURF_create()
     self._matcher = cv2.BFMatcher() 
-    self._sift_ratio = 0.7
+    self._sift_ratio = 0.80
     
   def extract(self, img):
 
@@ -49,7 +52,7 @@ class Extractor():
           good.append(m)
     return good
 
-  def camera_pose(self, K, land1, land2, corr='2D-2D'):
+  def camera_pose(self, K, land1, land2, corr='2D-2D', inliers_idxs=None):
     if corr == '2D-2D':
       """Get pose from 2D-2D correspondences"""
       # Compute essential matrix
@@ -60,6 +63,7 @@ class Extractor():
       kp_1_pts = kp_1_pts[mask, :]
       kp_2_pts = kp_2_pts[mask, :]
       retval, R, t, mask = cv2.recoverPose(E, kp_1_pts, kp_2_pts, K)
+      inliers = np.arange(0, kp_1_pts.shape[0])
 
     elif corr == '3D-2D':
       """Get pose from 3D-2D correspondences"""
@@ -69,20 +73,48 @@ class Extractor():
 
       kp_db_pts_3d = kp_db_pts_3d.reshape((-1, 1, 3))
       kp_curr_pts = kp_curr_pts.reshape((-1, 1, 2))
+      print(f"Num matches for correspondences: {kp_curr_pts.shape[0]}")
       retval, rvec, t, inliers = cv2.solvePnPRansac(kp_db_pts_3d, kp_curr_pts,
-                                                    K, None, reprojectionError=1.0)
+                                                    K, None, reprojectionError=6.0,
+                                                    iterationsCount=10000000,
+                                                    confidence=0.999, flags=cv2.SOLVEPNP_EPNP)
       R, _ = cv2.Rodrigues(rvec)
 
     H = np.eye(4)
     H[:3, :3] = R
     H[:3, 3] = t.reshape((3,))
-    return H
-  
+    return inliers.reshape((-1,)).tolist(), H
+
+  def relative_scale(self, K, traj, H1, land_db, land_curr):
+    """Re-triangulate landmarks to determine relative scale"""
+    N = len(land_db)
+    land_pts_3d_old = np.array([l.p for l in land_db]).reshape((-1, 3))
+    land_pts_3d_new = []
+    for i, l in enumerate(land_db):
+      t0 = l.t_latest
+      H0 = traj._poses[t0]
+      self.triangulate(K, H0, H1, [l], [land_curr[i]])
+      land_pts_3d_new.append(land_curr[i].p)
+    land_pts_3d_new = np.array(land_pts_3d_new).reshape((-1, 3))
+
+    # Average the ratio of differences
+    pair_idxs = combinations(range(N), 2)
+    ratios = []
+    for idxs in pair_idxs:
+      diff_old = np.linalg.norm(land_pts_3d_old[idxs[0], :] - land_pts_3d_old[idxs[1], :])
+      diff_new = np.linalg.norm(land_pts_3d_new[idxs[0], :] - land_pts_3d_new[idxs[1], :])
+      r = diff_old/diff_new
+      if (not np.isinf(r)) and (not np.isnan(r)):
+        ratios.append(diff_old/diff_new)
+
+    return np.mean(np.array(ratios))
+
+
   def triangulate(self, K, H0, H1, keyp0, keyp1):
     """Triangulate a batch of keypoints between two images
      keypoints are passed by reference.
-    Results will be stored in keyp0.p (Triangulated points are expressed
-    in the coordinate frame of camera 0).
+    Results will be stored in keyp1.p (Triangulated points are expressed
+    in the coordinate frame of camera 1).
 
     Parameters
     ----------
@@ -106,10 +138,10 @@ class Extractor():
     points_4D = cv2.triangulatePoints(P_0, P_1, uv0, uv1).reshape((4, -1)).T
     points_3D = (points_4D/points_4D[:, 3].reshape((-1, 1)))[:, :3]
 
-    for j, k in enumerate(keyp0):
+    for j, k in enumerate(keyp1):
       k.p = points_3D[j].reshape((3, 1))
 
-  def reprojection_error(self, landmarks_3D, landmarks_2D, K, norm='L2', T=np.eye(4)):
+  def reprojection_error(self, landmarks_3D, landmarks_2D, K, norm='L1', T=np.eye(4)):
     if norm not in ['L2', 'L1']:
       print(f"Invalid norm specified")
       exit()
@@ -117,7 +149,7 @@ class Extractor():
     err = 0.0
     N = len(landmarks_2D)
     for i in range(N):
-      l_2D, l_3D = landmarks_2D[i], landmarks_3D[i]
+      l_2D, l_3D = deepcopy(landmarks_2D[i]), deepcopy(landmarks_3D[i])
       l_3D.p = (T @ np.concatenate([l_3D.p.reshape((3, 1)), np.ones((1, 1))]))[:3, :]
       uv_homo = K @ l_3D.p
       uv = (uv_homo[:2] / uv_homo[2]).astype(np.int).reshape((2,))
