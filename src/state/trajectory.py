@@ -1,7 +1,7 @@
 import numpy as np
 
 class Trajectory():
-  def __init__( self, poses= []):
+  def __init__( self, poses={}):
     self._poses = poses
 
   def __len__(self):
@@ -16,15 +16,15 @@ class Trajectory():
     s += '='*60
     return s
     
-  def append(self,pose):
-    self._poses.append(pose)
+  def append(self, t, pose):
+    self._poses[t] = pose
   
   def remove(self, i):
-    if i > len(self):
+    if i not in self._poses.keys():
       raise ValueError('Out of bounds')
-    self._poses = self._poses[:i] + self._poses[i:]
+    del self._poses[i]
 
-  def relative(self, i,j):
+  def relative(self, i, j):
     pass
 
 if __name__ == "__main__":
