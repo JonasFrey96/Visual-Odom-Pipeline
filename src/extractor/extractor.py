@@ -21,49 +21,51 @@ def extract_features(img):
 class Extractor():
   def __init__(self,cfg=None):
     self._cfg = cfg
-    self._sift = cv2.SIFT_create()
-    # self._sift = cv2.xfeatures2d.SURF_create()
-    self._matcher = cv2.BFMatcher() 
-    self._sift_ratio = 0.80
-    
+    self._feature_method = 'sift'
+    if self._feature_method == 'orb':
+      self._detector = cv2.ORB_create()
+      self._matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    elif self._feature_method == 'sift':
+      self._detector = cv2.SIFT_create()
+      self._matcher = cv2.BFMatcher()
+      self._sift_ratio = 0.80
+
+
   def extract(self, img):
 
-    kp_1, desc_1 = self._sift.detectAndCompute(img, None)
+    kp_1, desc_1 = self._detector.detectAndCompute(img, None)
     return kp_1, desc_1
 
   def match(self, kp_1, desc_1, kp_2, desc_2):
-    matches = self._matcher.knnMatch(desc_1, desc_2, k=2)
-    good = []
+    if self._feature_method == 'sift':
+      matches = self._matcher.knnMatch(desc_1, desc_2, k=2)
+      good = []
 
-    for m, n in matches:
-        if m.distance < self._sift_ratio*n.distance:
-          good.append(m)
-    return good
+      for m, n in matches:
+          if m.distance < self._sift_ratio*n.distance:
+            good.append(m)
+      return good
+
+    elif self._feature_method == 'orb':
+      return self._matcher.match(desc_1, desc_2)
 
   def match_list(self, kp_1, desc_1, keypoints):
     desc_2 = np.array([k.des for k in keypoints])
     kp_2 = [k.uv for k in keypoints]
+    return self.match(kp_1, desc_1, kp_2, desc_2)
 
-    matches = self._matcher.knnMatch(desc_1, desc_2, k=2)
-    good = []
-
-    for m, n in matches:
-        if m.distance < self._sift_ratio*n.distance:
-          good.append(m)
-    return good
-
-  def camera_pose(self, K, land1, land2, corr='2D-2D', inliers_idxs=None):
+  def camera_pose(self, K, land1, land2, corr='2D-2D'):
     if corr == '2D-2D':
       """Get pose from 2D-2D correspondences"""
       # Compute essential matrix
       kp_1_pts = np.array([kp.uv for kp in land1]).astype(np.float32)
       kp_2_pts = np.array([kp.uv for kp in land2]).astype(np.float32)
-      E, mask = cv2.findEssentialMat(kp_1_pts, kp_2_pts, K, prob=0.999, method=cv2.RANSAC, mask=None, threshold=1)
+      E, mask = cv2.findEssentialMat(kp_1_pts, kp_2_pts, K, prob=0.9999, method=cv2.RANSAC, mask=None, threshold=1.0)
       # Remove outliers and recover pose
-      kp_1_pts = kp_1_pts[mask, :]
-      kp_2_pts = kp_2_pts[mask, :]
+      inliers = np.nonzero(mask)[0]
+      kp_1_pts = kp_1_pts[inliers, :]
+      kp_2_pts = kp_2_pts[inliers, :]
       retval, R, t, mask = cv2.recoverPose(E, kp_1_pts, kp_2_pts, K)
-      inliers = np.arange(0, kp_1_pts.shape[0])
 
     elif corr == '3D-2D':
       """Get pose from 3D-2D correspondences"""
@@ -73,11 +75,10 @@ class Extractor():
 
       kp_db_pts_3d = kp_db_pts_3d.reshape((-1, 1, 3))
       kp_curr_pts = kp_curr_pts.reshape((-1, 1, 2))
-      print(f"Num matches for correspondences: {kp_curr_pts.shape[0]}")
       retval, rvec, t, inliers = cv2.solvePnPRansac(kp_db_pts_3d, kp_curr_pts,
-                                                    K, None, reprojectionError=6.0,
-                                                    iterationsCount=10000000,
-                                                    confidence=0.999, flags=cv2.SOLVEPNP_EPNP)
+                                                    K, None, reprojectionError=2.0,
+                                                    iterationsCount=100000,
+                                                    confidence=0.95)
       R, _ = cv2.Rodrigues(rvec)
 
     H = np.eye(4)
@@ -100,13 +101,15 @@ class Extractor():
     # Average the ratio of differences
     pair_idxs = combinations(range(N), 2)
     ratios = []
-    for idxs in pair_idxs:
+    for i, idxs in enumerate(pair_idxs):
       diff_old = np.linalg.norm(land_pts_3d_old[idxs[0], :] - land_pts_3d_old[idxs[1], :])
       diff_new = np.linalg.norm(land_pts_3d_new[idxs[0], :] - land_pts_3d_new[idxs[1], :])
       r = diff_old/diff_new
       if (not np.isinf(r)) and (not np.isnan(r)):
         ratios.append(diff_old/diff_new)
 
+      if i > 30:
+        break
     return np.mean(np.array(ratios))
 
 
