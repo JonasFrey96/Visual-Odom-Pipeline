@@ -106,7 +106,8 @@ class Visualizer():
     cv2.imshow("Map", data)
     cv2.waitKey(1)
 
-  def plot_landmarks(self, landmarks_3D, landmarks_2D, img, K, T=np.eye(4)):
+  def plot_landmarks(self, landmarks_3D, landmarks_2D, img, K, T=np.eye(4),
+                     window_name='Localized Landmarks'):
     """Plot the projected 3D landmarks, connect to the corresponding
     2D landmarks with a line of the same color.
 
@@ -127,7 +128,7 @@ class Visualizer():
         cv2.circle(img, (uv[0], uv[1]), 2, color, -1)
         cv2.line(img, (uv_kpt[0], uv_kpt[1]), (uv[0], uv[1]), color, 2)
 
-    cv2.imshow("Projected Landmarks", img)
+    cv2.imshow(window_name, img)
     cv2.waitKey(1)
 
   # def plot_img(self, img, tag='img', store=True):

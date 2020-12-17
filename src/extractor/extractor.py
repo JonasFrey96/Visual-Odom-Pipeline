@@ -5,6 +5,7 @@ import cv2
 from copy import deepcopy
 from itertools import combinations
 from matplotlib import pyplot as plt
+from extractor.triangulate import triangulatePoints_ILS
 
 def extract_features(img):
   # Initiate STAR detector
@@ -54,7 +55,7 @@ class Extractor():
     kp_2 = [k.uv for k in keypoints]
     return self.match(kp_1, desc_1, kp_2, desc_2)
 
-  def camera_pose(self, K, land1, land2, corr='2D-2D'):
+  def camera_pose(self, K, land1, land2, corr='2D-2D', T=None):
     if corr == '2D-2D':
       """Get pose from 2D-2D correspondences"""
       # Compute essential matrix
@@ -75,10 +76,21 @@ class Extractor():
 
       kp_db_pts_3d = kp_db_pts_3d.reshape((-1, 1, 3))
       kp_curr_pts = kp_curr_pts.reshape((-1, 1, 2))
-      retval, rvec, t, inliers = cv2.solvePnPRansac(kp_db_pts_3d, kp_curr_pts,
-                                                    K, None, reprojectionError=2.0,
-                                                    iterationsCount=100000,
-                                                    confidence=0.95)
+      if not isinstance(T, type(None)):
+        R, tvec = T[:3, :3], T[:3, 3].reshape((3, 1))
+        rvec, _ = cv2.Rodrigues(R)
+        retval, rvec, t, inliers = cv2.solvePnPRansac(kp_db_pts_3d, kp_curr_pts,
+                                                      K, None,
+                                                      useExtrinsicGuess=True,
+                                                      rvec=rvec, tvec=tvec,
+                                                      reprojectionError=2.0,
+                                                      iterationsCount=100000,
+                                                      confidence=0.95)
+      else:
+        retval, rvec, t, inliers = cv2.solvePnPRansac(kp_db_pts_3d, kp_curr_pts,
+                                                      K, None, reprojectionError=2.0,
+                                                      iterationsCount=100000,
+                                                      confidence=0.95)
       R, _ = cv2.Rodrigues(rvec)
 
     H = np.eye(4)
@@ -108,6 +120,7 @@ class Extractor():
       if (not np.isinf(r)) and (not np.isnan(r)):
         ratios.append(diff_old/diff_new)
 
+      # TODO: Figure out how many old points to use
       if i > 30:
         break
     return np.mean(np.array(ratios))
@@ -138,9 +151,9 @@ class Extractor():
     # Construct projection matrices
     P_0 = (K @ H0[:3,:]).astype(np.float32)
     P_1 = (K @ H1[:3,:]).astype(np.float32)
-    points_4D = cv2.triangulatePoints(P_0, P_1, uv0, uv1).reshape((4, -1)).T
-    points_3D = (points_4D/points_4D[:, 3].reshape((-1, 1)))[:, :3]
-
+    # points_4D = cv2.triangulatePoints(P_0, P_1, uv0, uv1).reshape((4, -1)).T
+    # points_3D = (points_4D/points_4D[:, 3].reshape((-1, 1)))[:, :3]
+    points_3D, converged = triangulatePoints_ILS(P_0, P_1, uv0, uv1)
     for j, k in enumerate(keyp1):
       k.p = points_3D[j].reshape((3, 1))
 

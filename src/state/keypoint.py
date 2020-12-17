@@ -5,7 +5,7 @@ import numpy as np
 class Keypoint:
     """Class for keeping track of an item in inventory.
     feature point (uv) and the descriptor (desc) corresponds to the 
-    latest frame (t_latest) frame at which the feature point was detected.
+    latest *keyframe* (t_latest) frame at which the feature point was detected.
 
     3D point (p) is in the frame of the initial image (t0)"""
     t_first: int
