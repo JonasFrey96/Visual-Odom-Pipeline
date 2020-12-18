@@ -15,7 +15,7 @@ def extract_features(img):
   # compute the descriptors with ORB
   kp, des = orb.compute(img, kp)
   # draw only keypoints location,not size and orientation
-  img2 = cv2.drawKeypoints(img,kp,img, color=(0,255,0), flags=0)
+  img2 = cv2.drawKeypoints(img, kp, img, color=(0,255,0), flags=0)
   return kp, des, img2
 
 
@@ -100,18 +100,21 @@ class Extractor():
 
   def relative_scale(self, K, traj, H1, land_db, land_curr):
     """Re-triangulate landmarks to determine relative scale"""
-    N = len(land_db)
-    land_pts_3d_old = np.array([l.p for l in land_db]).reshape((-1, 3))
+    land_pts_3d_old = []
     land_pts_3d_new = []
     for i, l in enumerate(land_db):
       t0 = l.t_latest
       H0 = traj._poses[t0]
-      self.triangulate(K, H0, H1, [l], [land_curr[i]])
-      land_pts_3d_new.append(land_curr[i].p)
+      converged = self.triangulate(K, H0, H1, [l], [land_curr[i]])
+      if len(converged) == 1:
+        land_pts_3d_new.append(land_curr[i].p)
+        land_pts_3d_old.append(land_db[i].p)
+
+    land_pts_3d_old = np.array(land_pts_3d_old).reshape((-1, 3))
     land_pts_3d_new = np.array(land_pts_3d_new).reshape((-1, 3))
 
     # Average the ratio of differences
-    pair_idxs = combinations(range(N), 2)
+    pair_idxs = combinations(range(land_pts_3d_old.shape[0]), 2)
     ratios = []
     for i, idxs in enumerate(pair_idxs):
       diff_old = np.linalg.norm(land_pts_3d_old[idxs[0], :] - land_pts_3d_old[idxs[1], :])
@@ -154,8 +157,12 @@ class Extractor():
     # points_4D = cv2.triangulatePoints(P_0, P_1, uv0, uv1).reshape((4, -1)).T
     # points_3D = (points_4D/points_4D[:, 3].reshape((-1, 1)))[:, :3]
     points_3D, converged = triangulatePoints_ILS(P_0, P_1, uv0, uv1)
+
     for j, k in enumerate(keyp1):
       k.p = points_3D[j].reshape((3, 1))
+
+    return np.argwhere(converged == 1).reshape((-1,))
+
 
   def reprojection_error(self, landmarks_3D, landmarks_2D, K, norm='L1', T=np.eye(4)):
     if norm not in ['L2', 'L1']:
@@ -165,7 +172,7 @@ class Extractor():
     err = 0.0
     N = len(landmarks_2D)
     for i in range(N):
-      l_2D, l_3D = deepcopy(landmarks_2D[i]), deepcopy(landmarks_3D[i])
+      l_2D, l_3D = landmarks_2D[i], landmarks_3D[i]
       l_3D.p = (T @ np.concatenate([l_3D.p.reshape((3, 1)), np.ones((1, 1))]))[:3, :]
       uv_homo = K @ l_3D.p
       uv = (uv_homo[:2] / uv_homo[2]).astype(np.int).reshape((2,))

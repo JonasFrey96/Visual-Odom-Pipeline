@@ -32,7 +32,7 @@ class Pipeline():
       if t:
         self._state._landmarks[m.trainIdx].t_latest = t
 
-  def _select_keyframe(self, H_curr, angle_threshold=0.5, dist_threshold=0.5):
+  def _select_keyframe(self, H_curr, angle_threshold=1.0, dist_threshold=1.0):
     """Keyframe selection based on angle and baseline"""
     t_prev = self._keyframes[-1]
     H_prev = self._state._trajectory._poses[t_prev]
@@ -80,7 +80,9 @@ class Pipeline():
 
     # init the trajektory
     H0 = np.eye((4))
-    self._extractor.triangulate(K, H0, H1, landmarks, landmarks_cor)
+    converged = self._extractor.triangulate(K, H0, H1, landmarks, landmarks_cor)
+    landmarks = [landmarks[i] for i in converged]
+    landmarks_cor = [landmarks_cor[i] for i in converged]
 
     # Visualize landmarks
     self._visu.plot_landmarks(landmarks_cor, landmarks, img0, K)
@@ -144,7 +146,6 @@ class Pipeline():
     self._visu.append_plot_num_landmarks(len(database_landmarks))
     inliers, H1 = self._extractor.camera_pose(K, database_landmarks, current_landmarks, corr='3D-2D')
     print(f"Num inliers = {len(inliers)}")
-    print(f"Num proposed matches = {len(matches_land)}")
 
     database_landmarks = [database_landmarks[i] for i in inliers]
     current_landmarks = [current_landmarks[i] for i in inliers]
@@ -174,7 +175,7 @@ class Pipeline():
       # Refine Landmarks maybe based on new obs(HOW TO UPDATE THE LANDMARKS CORRECTLY)
       self._update_landmark_desc(matches_land, kp_0, desc_0, t=self._t_loader)
 
-      # TODO: Delete not used landmarks from landmark list (?)
+      # TODO: Delete not used landmarks from landmark list
 
       # [4.3] Triangulate new landmarks using the previous keyframe
       used_idx0_c = []
@@ -191,16 +192,18 @@ class Pipeline():
         used_idx1_c.append(m.trainIdx)
         removed_candidates.append(m.trainIdx)
 
-        kp_db = deepcopy(self._state._candidate[m.trainIdx])
+        kp_db = self._state._candidate[m.trainIdx]
         kp_new = Keypoint(kp_db.t_first, self._t_loader, kp_db.t_total,
                           np.array(kp_0[m.queryIdx].pt), None, desc_0[m.queryIdx, :])
 
         H0 = self._state._trajectory._poses[kp_db.t_latest]
-        self._extractor.triangulate(K, H0, H1, [kp_db], [kp_new])
-        new_landmarks.append(kp_new)
+        converged = self._extractor.triangulate(K, H0, H1, [kp_db], [kp_new])
+        if len(converged) == 1:
+          new_landmarks.append(kp_new)
 
-      # # Check new landmarks
-      # self._visu.plot_landmarks(new_landmarks, new_landmarks, img0, K, T=H1, window_name="Proposed Landmarks")
+      # Check new landmarks
+      self._visu.plot_landmarks(new_landmarks, new_landmarks, img0, K, T=H1, window_name="Proposed Landmarks")
+      self._state._landmarks += new_landmarks
       # cv2.waitKey(0)
 
       # Remove triangulated keypoints from candidates
