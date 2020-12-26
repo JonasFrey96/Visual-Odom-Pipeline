@@ -22,15 +22,15 @@ def extract_features(img):
 
 
 class Extractor():
-  def __init__(self,cfg=None):
+  def __init__(self, cfg=None):
     self._cfg = cfg
-    self._lk_params = dict(winSize=(51, 51),
+    self._lk_params = dict(winSize=(31, 31),
                            maxLevel=3,
                            criteria=(
-                           cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 0.03))
+                           cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.03))
 
-    self._feature_params = dict(maxCorners=500,
-                                qualityLevel=0.01,
+    self._feature_params = dict(maxCorners=100,
+                                qualityLevel=0.3,
                                 minDistance=7,
                                 blockSize=11)
 
@@ -39,9 +39,31 @@ class Extractor():
     self._feature_method = 'sift'
     self._matcher = cv2.BFMatcher()
     self._sift_ratio = 0.80
+    self._im_prev = None
+
+  def extend_tracks(self, im_curr, kp, max_bidir_error=10):
+    # KLT tracking of keypoints
+    im0, im1 = self._im_prev, im_curr
+    p0 = np.float32([k.uv for k in kp]).reshape(-1, 1, 2)
+    p1, _st, _err = cv2.calcOpticalFlowPyrLK(im0, im1, p0, None, **self._lk_params)
+    p0r, _st, _err = cv2.calcOpticalFlowPyrLK(im0, im1, p1, None, **self._lk_params)
+    d = abs(p0 - p0r).reshape(-1, 2).max(-1)
+    good = d < max_bidir_error
+    new_tracks = []
+    for k, (x, y), good_flag in zip(kp, p1.reshape(-1, 2), good):
+      if not good_flag:
+        continue
+
+      k.uv = np.array([x, y]).reshape((2, 1))
+      k.t_total += 1
+      new_tracks.append(k)
+
+    # Update "previous" image
+    self._im_prev = im_curr.copy()
+    return new_tracks
 
 
-  def extract(self, img, t, current_kp=[], detector='shi-tomasi'):
+  def extract(self, img, t, current_kp=[], detector='sift'):
     """
     Given a grayscale image, detect keypoints and generate
     descriptors for each of them. Return a list of custom Keypoint objects.
@@ -57,7 +79,7 @@ class Extractor():
     img = img.copy()
     mask = np.zeros_like(img)
     mask[:] = 255
-    for x, y in [np.int32(kp) for kp in current_kp]:
+    for x, y in [np.int32(kp.uv) for kp in current_kp]:
       cv2.circle(mask, (x, y), 5, 0, -1)
 
     # Detect and describe keypoints
@@ -101,7 +123,26 @@ class Extractor():
     kp_2 = [k.uv for k in keypoints]
     return self.match(kp_1, desc_1, kp_2, desc_2)
 
-  def camera_pose(self, K, list_1, list_2, corr='2D-2D', T=None):
+  def camera_pose(self, K, list_1, list_2, corr='2D-2D', matches=None, T=None):
+    """
+    Filter list_1 and list_2 using the match list. m.queryIdx for list_1,
+    and m.trainIdx for list_2.
+    :param K:
+    :param list_1:
+    :param list_2:
+    :param corr:
+    :param matches:
+    :param T:
+    :return:
+    """
+    if matches:
+      list_1_n, list_2_n = [], []
+      for match in matches:
+        list_1_n.append(list_1[match.queryIdx])
+        list_2_n.append(list_2[match.trainIdx])
+      list_1 = list_1_n
+      list_2 = list_2_n
+
     if corr == '2D-2D':
       """Get pose from 2D-2D correspondences"""
       # Compute essential matrix

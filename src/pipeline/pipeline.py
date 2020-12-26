@@ -16,13 +16,14 @@ class Pipeline():
     self._visu = Visualizer(self._K)
     self._t_step = 1
     self._state, self._t_loader, self._tra_gt = self._get_init_state()
+    self._extractor._im_prev = self._loader.getImage(self._t_loader)
     self._keyframes = [0, 1]
 
     self._visu.update(self._loader.getImage(self._t_loader), self._state)
     self._visu.render()
 
-  def _select_keyframe(self):
-    return True
+  def _select_keyframe(self, H):
+    return False
 
   def _get_init_state(self):
     # Feature detection and matching
@@ -61,12 +62,11 @@ class Pipeline():
     converged, landmarks = self._extractor.triangulate(self._K, H0, H1, kp0_m, kp1_m, self._t_step)
 
     # Remove non-converged landmarks
-    kp0_m = [kp0_m[i] for i in converged]
+    # kp0_m = [kp0_m[i] for i in converged]
     kp1_m = [kp1_m[i] for i in converged]
 
-    # Tracked and Candidate kp's
-    tracked_kp = kp1_m
-    candidate_kp = kp0_nm + kp1_nm
+    # Detect new keypoints for tracking
+    tracked_kp = kp1_m + kp1_nm
 
     # Initialize estimated and gt trajectories
     trajectory, trajectory_gt = Trajectory(), Trajectory()
@@ -74,10 +74,47 @@ class Pipeline():
     trajectory.append(1, H1)
     trajectory_gt.append(0, H0_gt)
     trajectory_gt.append(1, H1_gt)
-    return State(landmarks, tracked_kp, candidate_kp, trajectory), t1, trajectory_gt
+    return State(landmarks, tracked_kp, trajectory), t1, trajectory_gt
 
   def step(self):
-    pass
+    self._t_step += 1
+    self._t_loader += 1
+    im, H_gt = self._loader.getFrame(self._t_loader)
+
+    # Extend track lengths (Remove points that failed to track into current frame)
+    self._state._tracked_kp = self._extractor.extend_tracks(im, self._state._tracked_kp)
+
+    # Obtain 3D-2D Correspondences
+    matches = self._extractor.match_lists(self._state._landmarks, self._state._tracked_kp)
+
+    landmarks_m, tracked_kp_m = [], []
+    for match in matches:
+      landmarks_m.append(self._state._landmarks[match.queryIdx])
+      tracked_kp_m.append(self._state._tracked_kp[match.trainIdx])
+
+    # Localize with tracked keypoints
+    inliers, H1 = self._extractor.camera_pose(self._K, landmarks_m, tracked_kp_m, corr='3D-2D')
+
+    # Remove unused landmarks (un-matched, outliers)
+    self._state._landmarks = [landmarks_m[i] for i in inliers]
+
+    # Update trajectory
+    self._state._trajectory.append(self._t_step, H1)
+
+    # Triangulate if keyframe
+    if self._select_keyframe(H1):
+      landmarks_new, self._state._tracked_kp = self._extractor.triangulate_tracks(self._state._tracked_kp, self._state._trajectory,
+                                                                                  min_track_length=5)
+      self._state._landmarks += landmarks_new
+
+    # Detect new features and initialize new tracks
+    kp_new = self._extractor.extract(im, self._t_step, self._state._tracked_kp, detector='sift')
+    self._state._tracked_kp += kp_new
+
+    # Update visualizer
+    self._visu.update(im, self._state)
+    self._visu.render()
+
 
   def full_run(self):
     logging.info('Started Full run at timestep '+ str(self._t_loader))

@@ -63,6 +63,7 @@ class Visualizer():
 
 
   def render(self):
+    self._fig = plt.figure(figsize=(12, 6))
     ax = self._fig.add_subplot(221)
     plt.title("Landmarks and Keypoints")
     ax.imshow(self._im)
@@ -82,6 +83,7 @@ class Visualizer():
     # Draw trajectory
     ax = self._fig.add_subplot(245)
     plt.title("# Landmarks")
+    ax.plot(list(range(len(self._landmark_history))), self._landmark_history)
 
     ax = self._fig.add_subplot(246)
     plt.title("Global Trajectory")
@@ -90,6 +92,8 @@ class Visualizer():
     plt.title("Local Trajectory")
     traj = np.asarray(self._position_history).reshape((-1, 3))
     ax.scatter(traj[:, 0], traj[:, 2], s=10, c='blue', facecolor=None)
+    ax.set_aspect("equal")
+    ax.set_adjustable("datalim")
 
     # Draw landmarks in map
     ax.scatter(landmarks_3d[:, 0], landmarks_3d[:, 2], s=2, c='green', facecolor=None)
