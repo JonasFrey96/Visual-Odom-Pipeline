@@ -22,7 +22,28 @@ class Pipeline():
     self._visu.update(self._loader.getImage(self._t_loader), self._state)
     self._visu.render()
 
-  def _select_keyframe(self, H):
+  def _select_keyframe(self, threshold=0.2):
+    """Based on Lecture 10 (Multiple View Geometry 4).
+    When keyframe distance/average-landmark-depth > threshold (10 - 20%).
+    """
+    # Transform landmarks to coordinate frame of current timestep
+    landmarks_p = np.array([l.p for l in self._state._landmarks]).reshape((-1, 3))
+    landmarks_p = np.concatenate([landmarks_p, np.ones((landmarks_p.shape[0], 1))], axis=1)
+    H_curr = self._state._trajectory[len(self._state._trajectory)-1]
+    landmarks_p = ((H_curr @ landmarks_p.T).T)[:, :2]
+
+    # Compute average depth
+    avg_depth = np.mean(np.linalg.norm(landmarks_p, axis=1, ord=2))
+
+    # Compute relative baseline H_curr = H_rel @ H_prev_keyframe
+    H_prev_keyframe = self._state._trajectory[self._keyframes[-1]]
+    H_rel = H_curr @ np.linalg.inv(H_prev_keyframe)
+
+    ratio = np.linalg.norm(H_rel[:3, 3])/avg_depth
+    return ratio > threshold
+
+
+    # TODO: Implement
     return False
 
   def _get_init_state(self):
@@ -102,10 +123,12 @@ class Pipeline():
     self._state._trajectory.append(self._t_step, H1)
 
     # Triangulate if keyframe
-    if self._select_keyframe(H1):
-      landmarks_new, self._state._tracked_kp = self._extractor.triangulate_tracks(self._state._tracked_kp, self._state._trajectory,
-                                                                                  min_track_length=5)
-      self._state._landmarks += landmarks_new
+    if self._select_keyframe():
+      # landmarks_new, self._state._tracked_kp = self._extractor.triangulate_tracks(self._state._tracked_kp, self._state._trajectory,
+      #                                                                             min_track_length=5)
+      # self._state._landmarks += landmarks_new
+      self._keyframes.append(self._t_step)
+      print("Keyframe selected!")
 
     # Detect new features and initialize new tracks
     kp_new = self._extractor.extract(im, self._t_step, self._state._tracked_kp, detector='sift')

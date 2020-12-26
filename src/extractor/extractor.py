@@ -215,6 +215,9 @@ class Extractor():
         break
     return np.mean(np.array(ratios))
 
+  def triangulate_tracks(self, tracked_kp, trajectory, min_track_length=5):
+    # TODO: Implement
+    return []
 
   def triangulate(self, K, H0, H1, keyp0, keyp1, t):
     """
