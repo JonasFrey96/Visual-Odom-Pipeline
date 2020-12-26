@@ -77,9 +77,11 @@ class Loader():
 
   def getInit(self):
     """
-    Returns Tuple with first and secound index
+    Returns Tuple with first and second index
     """
-    return tuple( self._cfg[self._name]['init'] )
+    return tuple(self._cfg[self._name]['init'])
+
+
 if __name__ == "__main__":
   with open('/home/jonfrey/Visual-Odom-Pipeline/src/loader/datasets.yml') as f:
     doc = yaml.load(f, Loader=yaml.FullLoader)

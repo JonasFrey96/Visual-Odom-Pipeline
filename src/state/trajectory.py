@@ -7,6 +7,9 @@ class Trajectory():
   def __len__(self):
     return len(self._poses)
 
+  def __getitem__(self, key):
+    return self._poses[key]
+
   def __str__(self):
     s = '='*60
     s += f'\nTrajektory Length {len(self)} \n'

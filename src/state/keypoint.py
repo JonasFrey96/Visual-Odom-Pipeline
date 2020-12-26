@@ -3,26 +3,29 @@ import numpy as np
 
 @dataclass
 class Keypoint:
-    """Class for keeping track of an item in inventory.
-    feature point (uv) and the descriptor (desc) corresponds to the 
-    latest *keyframe* (t_latest) frame at which the feature point was detected.
+    """
+    Detected Shi-Tomasi key-point object.
+    Keep track of when a key-point was first observed.
+    If the track length is sufficiently long, and baseline is sufficiently
+    large, we triangulate this keypoint.
 
-    3D point (p) is in the frame of the initial image (t0)"""
+    uv_first: 2x1 np array
+    uv: 2x1 np array (latest uv)
+    des: 128x1 np array
+    """
     t_first: int
-    t_latest: int
-    t_total:  int
+    t_total: int
+    uv_first: np.array
     uv: np.array
-    p: np.array
     des: np.array
 
 
 if __name__ == "__main__":
     kp = Keypoint
-    kp.t_first = 0 
-    kp.t_latest = 0 
+    kp.t_first = 0
     kp.t_total = 0 
-    kp.uv = np.array( [12,123])
-    kp.p = np.array( [12,123,1])
-    kp.des = np.zeros( (128))
+    kp.uv_first = np.array([12, 123])
+    kp.uv_latest = np.array([12, 123])
+    kp.des = np.zeros((128))
     print('done')
     print(kp.t_first)

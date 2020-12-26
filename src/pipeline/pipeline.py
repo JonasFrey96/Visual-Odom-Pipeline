@@ -11,223 +11,73 @@ import cv2
 class Pipeline():
   def __init__(self, loader):
     self._loader = loader
+    self._K = loader.getCamera()
     self._extractor = Extractor()
-    self._visu = Visualizer() # current frame, reproject the state (current landmarks), trajecktory plot from top XY
-    self._H_latest = np.eye(4)
-    self._state, self._t_loader, self._tra_gt = self._get_init_state()
+    self._visu = Visualizer(self._K)
     self._t_step = 1
-    self._visu.plot_map(self._state, xlims=[-5, 20], zlims=[-5, 20])
-    self._keyframes = [self._t_loader]
+    self._state, self._t_loader, self._tra_gt = self._get_init_state()
+    self._keyframes = [0, 1]
 
-  def _transform_landmarks(self, T_rel):
-    """Apply a transform to all 3D landmark positions"""
-    for i, kp in enumerate(self._state._landmarks):
-      p_new = T_rel @ np.concatenate([kp.p, np.ones((1, 1))], axis=0)
-      self._state._landmarks[i].p = p_new[:3, :]
+    self._visu.update(self._loader.getImage(self._t_loader), self._state)
+    self._visu.render()
 
-  def _update_landmark_desc(self, match_dict, kp, desc, t=None):
-    for m in match_dict:
-      self._state._landmarks[m.trainIdx].uv = np.array(kp[m.queryIdx].pt)
-      # self._state._landmarks[m.trainIdx].desc = desc[m.queryIdx, :]
-      if t:
-        self._state._landmarks[m.trainIdx].t_latest = t
-
-  def _select_keyframe(self, H_curr, angle_threshold=1.0, dist_threshold=1.0):
-    """Keyframe selection based on angle and baseline"""
-    t_prev = self._keyframes[-1]
-    H_prev = self._state._trajectory._poses[t_prev]
-    H_rel = H_curr @ np.linalg.inv(H_prev)
-
-    rot_mat_rel = H_rel[:3, :3]
-    rot_angle = np.abs(np.rad2deg(np.linalg.norm(Rotation.from_matrix(rot_mat_rel).as_rotvec())))
-
-    baseline = np.linalg.norm(H_rel[:3, 3])
-    print(f"Baseline={baseline} // Angle={rot_angle}")
-    return (rot_angle > angle_threshold) or (baseline > dist_threshold)
+  def _select_keyframe(self):
+    return True
 
   def _get_init_state(self):
+    # Feature detection and matching
     t0, t1 = self._loader.getInit()
-    print(f"[t0, t1]: {t0},{t1}")
-    img0, H0_gt = self._loader.getFrame(t0)
-    img1, H1_gt = self._loader.getFrame(t1)
+    im0, H0_gt = self._loader.getFrame(t0)
+    im1, H1_gt = self._loader.getFrame(t1)
 
-    # feature extraction 
-    kp_0, desc_0 = self._extractor.extract(img0)
-    kp_1, desc_1 = self._extractor.extract(img1)
-    # mat  # load first two frames 
-    matches = self._extractor.match(kp_0, desc_0, kp_1, desc_1)
+    # Initialize with SIFT kp's and descriptors
+    kp0 = self._extractor.extract(im0, 0, detector='sift')
+    kp1 = self._extractor.extract(im1, 1, detector='sift')
+    matches = self._extractor.match_lists(kp0, kp1)
 
-    # create the landmarks list
-    landmarks = []
-    landmarks_cor = []
-    used_idx0 = []
-    used_idx1 = []
-    for m in matches:
-      l = Keypoint(t0, t1, 2, uv=np.array(kp_0[m.queryIdx].pt), p=None, des=desc_0[m.queryIdx])
-      l_cor = Keypoint(t0, t1, 2, uv=np.array(kp_1[m.trainIdx].pt), p=None, des=desc_1[m.trainIdx])
-      used_idx0.append(m.queryIdx)
-      used_idx1.append(m.trainIdx)
-      landmarks.append(l)
-      landmarks_cor.append(l_cor)
-    K = self._loader.getCamera() 
-    inliers, H1 = self._extractor.camera_pose(K, landmarks, landmarks_cor)
-    landmarks = [landmarks[i] for i in inliers]
-    landmarks_cor = [landmarks_cor[i] for i in inliers]
-    print(f"Pipeline bootstrapped with {len(inliers)} correspondences")
+    # Split keypoints into matched (kp1_m, kp2_m) and un-matched (kp1_nm, kp2_nm)
+    kp0_m, kp1_m = [], []
+    i0_nm, i1_nm = list(range(len(kp0))), list(range(len(kp1)))
+    for match in matches:
+      kp0_m.append(kp0[match.queryIdx])
+      kp1_m.append(kp1[match.trainIdx])
+      if match.queryIdx in i0_nm:
+        i0_nm.remove(match.queryIdx)
+      if match.trainIdx in i1_nm:
+        i1_nm.remove(match.trainIdx)
 
-    # Set baseline length = 1
-    H1[:3, 3] /= np.linalg.norm(H1[:3, 3])
+    kp0_nm = [kp0[i] for i in i0_nm]
+    kp1_nm = [kp1[i] for i in i1_nm]
 
-    # init the trajektory
-    H0 = np.eye((4))
-    converged = self._extractor.triangulate(K, H0, H1, landmarks, landmarks_cor)
-    landmarks = [landmarks[i] for i in converged]
-    landmarks_cor = [landmarks_cor[i] for i in converged]
+    # Estimate homography (bootstrapped baseline length set = 1)
+    H0 = np.eye(4)
+    inliers, H1 = self._extractor.camera_pose(self._K, kp0_m, kp1_m, corr='2D-2D')
 
-    # Visualize landmarks
-    self._visu.plot_landmarks(landmarks_cor, landmarks, img0, K)
+    # Remove outliers
+    kp0_m = [kp0_m[i] for i in inliers]
+    kp1_m = [kp1_m[i] for i in inliers]
 
-    # create the candidate list 
-    id0 = np.arange(0, len(kp_0) )
-    id1 = np.arange(0, len(kp_1) )
-    cand_id0 = np.delete(id0, np.array(used_idx0))
-    cand_id1 = np.delete(id1, np.array(used_idx1))
-    candidates = []
-    # for i in range(cand_id0.shape[0]):
-    #   c = Keypoint(t0, t0, 1, uv=kp_0[cand_id0[i]].pt, p=None, des=desc_0[cand_id0[i]])
-    #   candidates.append(c)
-    for i in range(cand_id1.shape[0]):
-      c = Keypoint(t1, t1, 1, uv=np.array(kp_1[cand_id1[i]].pt), p=None, des=desc_1[cand_id1[i], :])
-      candidates.append(c)
+    # Triangulate inliers to create landmarks
+    converged, landmarks = self._extractor.triangulate(self._K, H0, H1, kp0_m, kp1_m, self._t_step)
 
-    # fill the two list with candidates and landmarks
-    tra = Trajectory({t0: H0, t1: H1})
-    tra_gt = Trajectory({t0: H0_gt, t1: H1_gt})
-    self._H_latest = H1
-    return State(landmarks_cor, candidates, tra), t1, tra_gt
+    # Remove non-converged landmarks
+    kp0_m = [kp0_m[i] for i in converged]
+    kp1_m = [kp1_m[i] for i in converged]
+
+    # Tracked and Candidate kp's
+    tracked_kp = kp1_m
+    candidate_kp = kp0_nm + kp1_nm
+
+    # Initialize estimated and gt trajectories
+    trajectory, trajectory_gt = Trajectory(), Trajectory()
+    trajectory.append(0, H0)
+    trajectory.append(1, H1)
+    trajectory_gt.append(0, H0_gt)
+    trajectory_gt.append(1, H1_gt)
+    return State(landmarks, tracked_kp, candidate_kp, trajectory), t1, trajectory_gt
 
   def step(self):
-    self._t_loader += 1
-    self._t_step += 1
-    # load a new frame
-    img0, H0_gt = self._loader.getFrame(self._t_loader)
-    K = self._loader.getCamera()
-
-    # Store true pose
-    self._tra_gt._poses[self._t_loader] = H0_gt
-
-    # TODO: KLT Tracking
-
-    # [4.1] Associate keypoints to existing landmarks
-    # feature extraction and matching
-    kp_0, desc_0 = self._extractor.extract(img0)
-    matches_land = self._extractor.match_list(kp_0, desc_0, self._state._landmarks)
-
-    # Extract relevant landmarks for localization
-    used_idx0 = []
-    used_idx1 = []
-    database_landmarks = []
-    current_landmarks = []
-    for m in matches_land:
-      # Updated the landmarks_list
-      used_idx0.append(m.queryIdx)
-      used_idx1.append(m.trainIdx)
-      self._state._landmarks[m.trainIdx].t_total += 1
-
-      database_landmarks.append(deepcopy(self._state._landmarks[m.trainIdx]))
-      current_landmarks.append(Keypoint(self._state._landmarks[m.trainIdx].t_first,
-                                        self._t_loader,
-                                        self._state._landmarks[m.trainIdx].t_total+1,
-                                        np.array(kp_0[m.queryIdx].pt),
-                                        None,
-                                        desc_0[m.queryIdx, :]))
-
-    # [4.2] Estimating current camera pose (relative to first image coordinate frame)
-    self._visu.append_plot_num_landmarks(len(database_landmarks))
-    inliers, H1 = self._extractor.camera_pose(K, database_landmarks, current_landmarks, corr='3D-2D')
-    print(f"Num inliers = {len(inliers)}")
-
-    database_landmarks = [database_landmarks[i] for i in inliers]
-    current_landmarks = [current_landmarks[i] for i in inliers]
-    matches_land = [matches_land[i] for i in inliers]
-
-    # Visualize localization landmarks
-    self._visu.plot_landmarks(database_landmarks, current_landmarks, img0, K,
-                              T=H1)
-
-    #  Reprojection error of the landmarks (that are present in current frame)
-    err = self._extractor.reprojection_error(database_landmarks,
-                                             current_landmarks, K, T=H1)
-    self._visu.append_plot_reprojection_error(err)
-
-    # Determine relative scale and re-scale translation
-    rel_scale = self._extractor.relative_scale(K, self._state._trajectory, H1, database_landmarks,
-                                               current_landmarks)
-    H1[:3, 3] *= rel_scale/np.linalg.norm(H1[:3, 3])
-
-    # Trajektory update (append new pose)
-    self._state._trajectory.append(self._t_loader, H1)
-    self._H_latest = H1
-
-    # Check if frame should be used for triangulation
-    if self._select_keyframe(H1):
-
-      # Refine Landmarks maybe based on new obs(HOW TO UPDATE THE LANDMARKS CORRECTLY)
-      self._update_landmark_desc(matches_land, kp_0, desc_0, t=self._t_loader)
-
-      # TODO: Delete not used landmarks from landmark list
-
-      # [4.3] Triangulate new landmarks using the previous keyframe
-      used_idx0_c = []
-      used_idx1_c = []
-      removed_candidates = []
-      # TODO: Should we only match against the latest keyframe?
-      matches_cand = self._extractor.match_list(kp_0, desc_0,
-                                                self._state._candidate)
-      new_landmarks = []
-      for m in matches_cand:
-        # self._state._candidate[m.trainIdx].t_total += 1
-        # self._state._candidate[m.trainIdx].t_latest = self._t_loader
-        used_idx0_c.append(m.queryIdx)
-        used_idx1_c.append(m.trainIdx)
-        removed_candidates.append(m.trainIdx)
-
-        kp_db = self._state._candidate[m.trainIdx]
-        kp_new = Keypoint(kp_db.t_first, self._t_loader, kp_db.t_total,
-                          np.array(kp_0[m.queryIdx].pt), None, desc_0[m.queryIdx, :])
-
-        H0 = self._state._trajectory._poses[kp_db.t_latest]
-        converged = self._extractor.triangulate(K, H0, H1, [kp_db], [kp_new])
-        if len(converged) == 1:
-          new_landmarks.append(kp_new)
-
-      # Check new landmarks
-      self._visu.plot_landmarks(new_landmarks, new_landmarks, img0, K, T=H1, window_name="Proposed Landmarks")
-      self._state._landmarks += new_landmarks
-      # cv2.waitKey(0)
-
-      # Remove triangulated keypoints from candidates
-      # TODO: Find a better way to do this
-      updated_candidate = []
-      for i, kp in enumerate(self._state._candidate):
-        if i not in removed_candidates:
-          updated_candidate.append(kp)
-      self._state._candidate = updated_candidate
-      print(f"New landmarks triangulated: {len(removed_candidates)}")
-
-      # Add unused keypoints to candidates
-      id = np.arange(0, len(kp_0))
-      cand_id = np.delete(id, np.array(used_idx0_c))
-      for i in range(cand_id.shape[0]):
-        c = Keypoint(self._t_loader, self._t_loader, 1, uv=np.array(kp_0[cand_id[i]].pt), p=None,
-                     des=desc_0[cand_id[i], :])
-        self._state._candidate.append(c)
-
-      # grouping into candidates and matched ones
-      # triangulation
-
-    #  2D map from the top
-    self._visu.plot_map(self._state, self._tra_gt, xlims=[-20, 20], zlims=[-20, 20])
+    pass
 
   def full_run(self):
     logging.info('Started Full run at timestep '+ str(self._t_loader))
