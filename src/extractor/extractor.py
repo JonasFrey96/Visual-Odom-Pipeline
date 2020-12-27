@@ -18,9 +18,9 @@ class Extractor():
                            cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.03))
 
     self._shitomasi_params = dict(maxCorners=1000,
-                                qualityLevel=0.03,
-                                minDistance=10,
-                                blockSize=11)
+                                qualityLevel=0.05,
+                                minDistance=5,
+                                blockSize=31)
 
     self._feature_method = 'sift'
     if self._feature_method == 'sift':
@@ -47,9 +47,10 @@ class Extractor():
       if not good_flag:
         continue
 
-      k.uv = np.array([x, y]).reshape((2, 1))
-      k.t_total += 1
-      new_tracks.append(k)
+      if 0 <= x <= im_curr.shape[1] and 0 <= y <= im_curr.shape[0]:
+        k.uv = np.array([x, y]).reshape((2, 1))
+        k.t_total += 1
+        new_tracks.append(k)
 
     return new_tracks
 
@@ -66,10 +67,11 @@ class Extractor():
       if not good_flag:
         continue
 
-      k.uv = np.array([x, y]).reshape((2, 1))
-      k.t_total += 1
-      kp_new.append(k)
-      landmarks_new.append(l)
+      if 0 <= x <= im_curr.shape[1] and 0 <= y <= im_curr.shape[0]:
+        k.uv = np.array([x, y]).reshape((2, 1))
+        k.t_total += 1
+        kp_new.append(k)
+        landmarks_new.append(l)
 
     return landmarks_new, kp_new
 
