@@ -18,14 +18,14 @@ class Extractor():
                            cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.03))
 
     self._shitomasi_params = dict(maxCorners=100,
-                                qualityLevel=0.3,
-                                minDistance=7,
-                                blockSize=11)
+                                qualityLevel=0.01,
+                                minDistance=5,
+                                blockSize=5)
 
     self._feature_method = 'sift'
     if self._feature_method == 'sift':
       self._features = cv2.SIFT_create()
-      self._sift_ratio = 0.90
+      self._sift_ratio = 0.80
     elif self._feature_method == 'orb':
       self._features = cv2.ORB_create()
     else:
@@ -51,10 +51,27 @@ class Extractor():
       k.t_total += 1
       new_tracks.append(k)
 
-    # Update "previous" image
-    self._im_prev = im_curr.copy()
     return new_tracks
 
+  def extend_landmarks(self, im_curr, landmarks, landmarks_kp, max_bidir_error=30):
+    # KLT tracking of keypoints
+    im0, im1 = self._im_prev, im_curr
+    p0 = np.float32([k.uv for k in landmarks_kp]).reshape(-1, 1, 2)
+    p1, _st, _err = cv2.calcOpticalFlowPyrLK(im0, im1, p0, None, **self._lk_params)
+    p0r, _st, _err = cv2.calcOpticalFlowPyrLK(im0, im1, p1, None, **self._lk_params)
+    d = abs(p0 - p0r).reshape(-1, 2).max(-1)
+    good = d < max_bidir_error
+    landmarks_new, kp_new = [], []
+    for l, k, (x, y), good_flag in zip(landmarks, landmarks_kp, p1.reshape(-1, 2), good):
+      if not good_flag:
+        continue
+
+      k.uv = np.array([x, y]).reshape((2, 1))
+      k.t_total += 1
+      kp_new.append(k)
+      landmarks_new.append(l)
+
+    return landmarks_new, kp_new
 
   def extract(self, img, t, current_kp=[], detector='custom', mask_radius=5):
     """
@@ -117,7 +134,7 @@ class Extractor():
     kp_2 = [k.uv for k in keypoints]
     return self.match(kp_1, desc_1, kp_2, desc_2)
 
-  def camera_pose(self, K, list_1, list_2, corr='2D-2D', matches=None, T=None):
+  def camera_pose(self, K, list_1, list_2, corr='2D-2D'):
     """
     Filter list_1 and list_2 using the match list. m.queryIdx for list_1,
     and m.trainIdx for list_2.
@@ -129,20 +146,13 @@ class Extractor():
     :param T:
     :return:
     """
-    if matches:
-      list_1_n, list_2_n = [], []
-      for match in matches:
-        list_1_n.append(list_1[match.queryIdx])
-        list_2_n.append(list_2[match.trainIdx])
-      list_1 = list_1_n
-      list_2 = list_2_n
 
     if corr == '2D-2D':
       """Get pose from 2D-2D correspondences"""
       # Compute essential matrix
       kp_1_pts = np.array([kp.uv.T for kp in list_1]).astype(np.float32)
       kp_2_pts = np.array([kp.uv.T for kp in list_2]).astype(np.float32)
-      E, mask = cv2.findEssentialMat(kp_1_pts, kp_2_pts, K, prob=0.999, method=cv2.RANSAC, mask=None, threshold=1.0)
+      E, mask = cv2.findEssentialMat(kp_1_pts, kp_2_pts, K, prob=0.9999, method=cv2.RANSAC, mask=None, threshold=1.0)
       # Remove outliers and recover pose
       inliers = np.nonzero(mask)[0]
       kp_1_pts = kp_1_pts[inliers, :]
@@ -151,28 +161,17 @@ class Extractor():
 
     elif corr == '3D-2D':
       """Get pose from 3D-2D correspondences"""
-      # Compute essential matrix
       kp_db_pts_3d = np.array([kp.p.T for kp in list_1]).astype(np.float32)
       kp_curr_pts = np.array([kp.uv.T for kp in list_2]).astype(np.float32)
 
       kp_db_pts_3d = kp_db_pts_3d.reshape((-1, 1, 3))
       kp_curr_pts = kp_curr_pts.reshape((-1, 1, 2))
-      if not isinstance(T, type(None)):
-        R, tvec = T[:3, :3], T[:3, 3].reshape((3, 1))
-        rvec, _ = cv2.Rodrigues(R)
-        retval, rvec, t, inliers = cv2.solvePnPRansac(kp_db_pts_3d, kp_curr_pts,
-                                                      K, None,
-                                                      useExtrinsicGuess=True,
-                                                      rvec=rvec, tvec=tvec,
-                                                      reprojectionError=1.0,
-                                                      iterationsCount=1000000,
-                                                      confidence=0.999)
-      else:
-        retval, rvec, t, inliers = cv2.solvePnPRansac(kp_db_pts_3d, kp_curr_pts,
-                                                      K, None, reprojectionError=1.0,
-                                                      iterationsCount=1000000,
-                                                      confidence=0.999,
-                                                      flags=cv2.SOLVEPNP_P3P)
+
+      retval, rvec, t, inliers = cv2.solvePnPRansac(kp_db_pts_3d, kp_curr_pts,
+                                                    K, None, reprojectionError=8.0,
+                                                    iterationsCount=1000000,
+                                                    confidence=0.99,
+                                                    flags=cv2.SOLVEPNP_P3P)
       R, _ = cv2.Rodrigues(rvec)
 
     H = np.eye(4)
@@ -180,35 +179,42 @@ class Extractor():
     H[:3, 3] = t.reshape((3,))
     return inliers.reshape((-1,)).tolist(), H
 
-  def triangulate_tracks(self, K, tracked_kp, trajectory, t_prev, t_curr, min_track_length=5):
-    """Triangulate tracks following 2 criteria:
-     (1) exceeds the minimum track length
-     (2) first observation was at an index *preceding* latest keyframe.
+  def triangulate_tracks(self, K, candidates_kp, trajectory, t_curr, min_track_length=5, min_bearing_angle=10):
+    """Triangulate tracks that exceed the minimum track length.
+       Only create a new landmark if bearing angle exceeds the threshold.
 
      Remove tracked keypoints that get triangulated (whether succ. or not).
     """
-    landmarks = []
+    landmarks_new = []
 
     # Split keypoint tracks based on track length threshold
-    tracked_tri_1 = [kp for kp in tracked_kp if kp.t_total >= min_track_length]
-    tracked_notri = [kp for kp in tracked_kp if kp.t_total < min_track_length]
+    landmarks_kp_new = [kp for kp in candidates_kp if kp.t_total >= min_track_length]
+    candidates_kp_new = [kp for kp in candidates_kp if kp.t_total < min_track_length]
 
-    if len(tracked_tri_1) > 0:
+    if len(landmarks_kp_new) > 0:
 
       # Triangulate keypoint tracks independently
       H1 = trajectory[len(trajectory)-1]
-      for kp_1 in tracked_tri_1:
-        if kp_1.t_first <= t_prev:
-          kp_0 = Keypoint(kp_1.t_first, kp_1.t_total, kp_1.uv_first,
-                          kp_1.uv_first, kp_1.des)
-          H0 = trajectory[kp_0.t_first]
-          converged, l = self.triangulate(K, H0, H1, [kp_0], [kp_1], t_curr)
-          if len(converged):
-            landmarks += l
-        else:
-          tracked_notri.append(kp_1)
+      for kp_1 in landmarks_kp_new:
+        kp_0 = Keypoint(kp_1.t_first, kp_1.t_total, kp_1.uv_first,
+                        kp_1.uv_first, kp_1.des)
+        H0 = trajectory[kp_0.t_first]
+        converged, l = self.triangulate(K, H0, H1, [kp_0], [kp_1], t_curr)
+        if len(converged):
+          # Compute bearing angle: theta = cosinv((b^2 + c^2 - a^2) / (2bc))
+          # a = baseline
+          # b, c = dist to landmark at t0 and t1
+          Hrel = H1 @ np.linalg.inv(H0)
+          P_homo = np.concatenate([l[0].p, np.zeros((1, 1))], axis=0).reshape((4, 1))
+          a = np.linalg.norm(Hrel)
+          b = np.linalg.norm(H0 @ P_homo)
+          c = np.linalg.norm(H1 @ P_homo)
+          bearing_angle = np.rad2deg(np.arccos((b*b + c*c - a*a)/(2*b*c)))
 
-    return landmarks, tracked_notri
+          if not np.isnan(bearing_angle) and bearing_angle > min_bearing_angle:
+            landmarks_new += l
+
+    return landmarks_new, landmarks_kp_new, candidates_kp_new
 
   def triangulate(self, K, H0, H1, keyp0, keyp1, t):
     """

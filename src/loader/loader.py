@@ -42,8 +42,16 @@ class Loader():
       self._camera = data.to_numpy()[:3, :3]
 
     elif self._name == 'malaga':
-      p = base + 'malaga-urban-dataset-extract-07_rectified_1024x768_Images'
+      p = base + '/malaga-urban-dataset-extract-07_rectified_1024x768_Images'
       self._image_paths = [str(p) for p in Path(p).rglob('*_left.jpg')]
+      self._poses = np.zeros((len(self._image_paths), 4, 4))
+      self._camera = np.eye(3)
+      with open(base + '/camera_params_rectified_a=0_1024x768.txt') as param_f:
+        lines = param_f.readlines()
+        self._camera[0, 0] = lines[8][3:-1]
+        self._camera[0, 2] = lines[6][3:-1]
+        self._camera[1, 1] = lines[9][3:-1]
+        self._camera[1, 2] = lines[7][3:-1]
 
     elif self._name == 'kitti':
       p = base + '/00/image_0'
