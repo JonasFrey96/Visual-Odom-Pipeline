@@ -72,6 +72,7 @@ class Loader():
     if id >= self._length or id < 0: 
        raise AssertionError
     return cv2.bilateralFilter(cv2.imread(self._image_paths[id] , cv2.IMREAD_GRAYSCALE), **self._bilateral_filter_params) #Image.open( self._image_paths[id] )
+    return cv2.imread(self._image_paths[id] , cv2.IMREAD_GRAYSCALE)
 
   def getPose(self, id):
     if id >= self._length or id < 0: 

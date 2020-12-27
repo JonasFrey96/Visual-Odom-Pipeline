@@ -17,10 +17,10 @@ class Extractor():
                            criteria=(
                            cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.03))
 
-    self._shitomasi_params = dict(maxCorners=100,
-                                qualityLevel=0.01,
-                                minDistance=5,
-                                blockSize=5)
+    self._shitomasi_params = dict(maxCorners=1000,
+                                qualityLevel=0.03,
+                                minDistance=10,
+                                blockSize=11)
 
     self._feature_method = 'sift'
     if self._feature_method == 'sift':
@@ -134,19 +134,7 @@ class Extractor():
     kp_2 = [k.uv for k in keypoints]
     return self.match(kp_1, desc_1, kp_2, desc_2)
 
-  def camera_pose(self, K, list_1, list_2, corr='2D-2D'):
-    """
-    Filter list_1 and list_2 using the match list. m.queryIdx for list_1,
-    and m.trainIdx for list_2.
-    :param K:
-    :param list_1:
-    :param list_2:
-    :param corr:
-    :param matches:
-    :param T:
-    :return:
-    """
-
+  def camera_pose(self, K, list_1, list_2, corr='2D-2D', max_err_reproj=4.0):
     if corr == '2D-2D':
       """Get pose from 2D-2D correspondences"""
       # Compute essential matrix
@@ -168,7 +156,7 @@ class Extractor():
       kp_curr_pts = kp_curr_pts.reshape((-1, 1, 2))
 
       retval, rvec, t, inliers = cv2.solvePnPRansac(kp_db_pts_3d, kp_curr_pts,
-                                                    K, None, reprojectionError=8.0,
+                                                    K, None, reprojectionError=max_err_reproj,
                                                     iterationsCount=1000000,
                                                     confidence=0.99,
                                                     flags=cv2.SOLVEPNP_P3P)
@@ -179,7 +167,7 @@ class Extractor():
     H[:3, 3] = t.reshape((3,))
     return inliers.reshape((-1,)).tolist(), H
 
-  def triangulate_tracks(self, K, candidates_kp, trajectory, t_curr, min_track_length=5, min_bearing_angle=10):
+  def triangulate_tracks(self, K, candidates_kp, trajectory, t_curr, min_track_length=5, min_bearing_angle=10, max_err_reproj=4.0):
     """Triangulate tracks that exceed the minimum track length.
        Only create a new landmark if bearing angle exceeds the threshold.
 
@@ -211,7 +199,18 @@ class Extractor():
           c = np.linalg.norm(H1 @ P_homo)
           bearing_angle = np.rad2deg(np.arccos((b*b + c*c - a*a)/(2*b*c)))
 
-          if not np.isnan(bearing_angle) and bearing_angle > min_bearing_angle:
+          # Compute reprojection error (Mean reprojection error btwn t0 and t1)
+          px_0 = K @ (H0 @ P_homo)[:3, 0:1]
+          px_0 = (px_0 / px_0[2:3, 0:1])[:2, 0:1]
+          err_0 = np.linalg.norm(kp_0.uv_first - px_0)
+          px_1 = K @ (H1 @ P_homo)[:3, 0:1]
+          px_1 = (px_1 / px_1[2:3, 0:1])[:2, 0:1]
+          err_1 = np.linalg.norm(kp_1.uv_first - px_1)
+          # err_reproj = np.mean([err_0, err_1])
+          err_reproj = 0
+
+          if (not np.isnan(bearing_angle)) and (bearing_angle > min_bearing_angle) \
+             and (err_reproj < max_err_reproj):
             landmarks_new += l
 
     return landmarks_new, landmarks_kp_new, candidates_kp_new
