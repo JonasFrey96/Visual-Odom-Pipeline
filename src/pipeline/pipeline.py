@@ -30,10 +30,10 @@ class Pipeline():
     landmarks_p = np.array([l.p for l in self._state._landmarks]).reshape((-1, 3))
     landmarks_p = np.concatenate([landmarks_p, np.ones((landmarks_p.shape[0], 1))], axis=1)
     H_curr = self._state._trajectory[len(self._state._trajectory)-1]
-    landmarks_p = ((H_curr @ landmarks_p.T).T)[:, :2]
+    landmarks_p = ((H_curr @ landmarks_p.T).T)[:, :3]
 
     # Compute average depth
-    avg_depth = np.mean(np.linalg.norm(landmarks_p, axis=1, ord=2))
+    avg_depth = np.median(np.linalg.norm(landmarks_p, axis=1, ord=2))
 
     # Compute relative baseline H_curr = H_rel @ H_prev_keyframe
     H_prev_keyframe = self._state._trajectory[self._keyframes[-1]]
@@ -91,7 +91,7 @@ class Pipeline():
     tracked_kp = kp1_m + kp1_nm
 
     # Initialize estimated and gt trajectories
-    trajectory, trajectory_gt = Trajectory(), Trajectory()
+    trajectory, trajectory_gt = Trajectory({}), Trajectory({})
     trajectory.append(0, H0)
     trajectory.append(1, H1)
     trajectory_gt.append(0, H0_gt)
@@ -104,15 +104,17 @@ class Pipeline():
     im, H_gt = self._loader.getFrame(self._t_loader)
 
     # Extend track lengths (Remove points that failed to track into current frame)
-    self._state._tracked_kp = self._extractor.extend_tracks(im, self._state._tracked_kp)
+    self._state._tracked_kp = self._extractor.extend_tracks(im, self._state._tracked_kp, max_bidir_error=10)
 
     # Obtain 3D-2D Correspondences
     matches = self._extractor.match_lists(self._state._landmarks, self._state._tracked_kp)
 
-    landmarks_m, tracked_kp_m = [], []
+    landmarks_m, tracked_kp_m, kp_idx_nm = [], [], list(range(len(self._state._tracked_kp)))
     for match in matches:
       landmarks_m.append(self._state._landmarks[match.queryIdx])
       tracked_kp_m.append(self._state._tracked_kp[match.trainIdx])
+      if match.trainIdx in kp_idx_nm:
+        kp_idx_nm.remove(match.trainIdx)
 
     # Localize with tracked keypoints
     inliers, H1 = self._extractor.camera_pose(self._K, landmarks_m, tracked_kp_m, corr='3D-2D')
@@ -120,24 +122,31 @@ class Pipeline():
     # Remove unused landmarks (un-matched, outliers)
     self._state._landmarks = [landmarks_m[i] for i in inliers]
 
+    # Remove outlier tracks, update tracks
+    tracked_kp_nm = [self._state._tracked_kp[i] for i in kp_idx_nm]
+    tracked_kp_m = [tracked_kp_m[i] for i in inliers]
+    self._state._tracked_kp = tracked_kp_m + tracked_kp_nm
+
     # Update trajectory
     self._state._trajectory.append(self._t_step, H1)
 
     # # Triangulate if keyframe
     # if self._select_keyframe():
-    #   landmarks_new = self._extractor.triangulate_tracks(self._K, self._state._tracked_kp, self._state._trajectory,
-    #                                                                               self._t_step)
+    #   landmarks_new = self._extractor.triangulate_tracks(self._K,
+    #                                                      self._state._tracked_kp,
+    #                                                      self._state._trajectory,
+    #                                                      self._t_step,
+    #                                                      min_track_length=2)
     #   self._state._landmarks += landmarks_new
     #   self._keyframes.append(self._t_step)
-    #
-    # # Detect new features and initialize new tracks
-    # kp_new = self._extractor.extract(im, self._t_step, self._state._tracked_kp, detector='sift')
-    # self._state._tracked_kp += kp_new
+
+    # Detect new features and initialize new tracks
+    kp_new = self._extractor.extract(im, self._t_step, self._state._tracked_kp, detector='sift')
+    self._state._tracked_kp += kp_new
 
     # Update visualizer
     self._visu.update(im, self._state)
     self._visu.render()
-
 
   def full_run(self):
     logging.info('Started Full run at timestep '+ str(self._t_loader))
