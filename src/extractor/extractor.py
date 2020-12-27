@@ -41,7 +41,7 @@ class Extractor():
     self._sift_ratio = 0.80
     self._im_prev = None
 
-  def extend_tracks(self, im_curr, kp, max_bidir_error=10):
+  def extend_tracks(self, im_curr, kp, max_bidir_error=30):
     # KLT tracking of keypoints
     im0, im1 = self._im_prev, im_curr
     p0 = np.float32([k.uv for k in kp]).reshape(-1, 1, 2)
@@ -74,7 +74,6 @@ class Extractor():
     :param current_kp: list of currently tracked Keypoint objects
     :return: list of Keypoints
     """
-
     # Create a mask to not re-detect currently tracked kps
     img = img.copy()
     mask = np.zeros_like(img)
@@ -215,9 +214,28 @@ class Extractor():
         break
     return np.mean(np.array(ratios))
 
-  def triangulate_tracks(self, tracked_kp, trajectory, min_track_length=5):
-    # TODO: Implement
-    return []
+  def triangulate_tracks(self, K, tracked_kp, trajectory, t, min_track_length=5):
+    """Triangulate tracks that exceed the minimum track length.
+    Return the updated tracks. Tracks that we triangulate (successfully or not)
+    are removed."""
+    landmarks = []
+
+    # Split keypoint tracks based on track length threshold
+    tracked_tri_1 = [kp for kp in tracked_kp if kp.t_total >= min_track_length]
+
+    if len(tracked_tri_1) > 0:
+
+      # Triangulate keypoint tracks independently
+      H1 = trajectory[len(trajectory)-1]
+      for kp_1 in tracked_tri_1:
+        kp_0 = Keypoint(kp_1.t_first, kp_1.t_total, kp_1.uv_first,
+                                    kp_1.uv_first, kp_1.des)
+        H0 = trajectory[kp_0.t_first]
+        converged, l = self.triangulate(K, H0, H1, [kp_0], [kp_1], t)
+        if len(converged):
+          landmarks += l
+
+    return landmarks
 
   def triangulate(self, K, H0, H1, keyp0, keyp1, t):
     """

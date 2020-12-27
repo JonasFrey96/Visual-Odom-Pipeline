@@ -85,6 +85,7 @@ class Pipeline():
     # Remove non-converged landmarks
     # kp0_m = [kp0_m[i] for i in converged]
     kp1_m = [kp1_m[i] for i in converged]
+    landmarks = [landmarks[i] for i in converged]
 
     # Detect new keypoints for tracking
     tracked_kp = kp1_m + kp1_nm
@@ -122,17 +123,16 @@ class Pipeline():
     # Update trajectory
     self._state._trajectory.append(self._t_step, H1)
 
-    # Triangulate if keyframe
-    if self._select_keyframe():
-      # landmarks_new, self._state._tracked_kp = self._extractor.triangulate_tracks(self._state._tracked_kp, self._state._trajectory,
-      #                                                                             min_track_length=5)
-      # self._state._landmarks += landmarks_new
-      self._keyframes.append(self._t_step)
-      print("Keyframe selected!")
-
-    # Detect new features and initialize new tracks
-    kp_new = self._extractor.extract(im, self._t_step, self._state._tracked_kp, detector='sift')
-    self._state._tracked_kp += kp_new
+    # # Triangulate if keyframe
+    # if self._select_keyframe():
+    #   landmarks_new = self._extractor.triangulate_tracks(self._K, self._state._tracked_kp, self._state._trajectory,
+    #                                                                               self._t_step)
+    #   self._state._landmarks += landmarks_new
+    #   self._keyframes.append(self._t_step)
+    #
+    # # Detect new features and initialize new tracks
+    # kp_new = self._extractor.extract(im, self._t_step, self._state._tracked_kp, detector='sift')
+    # self._state._tracked_kp += kp_new
 
     # Update visualizer
     self._visu.update(im, self._state)

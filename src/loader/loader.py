@@ -13,6 +13,11 @@ class Loader():
   def __init__(self, name, cfg):
     self._name = name
     self._cfg = cfg
+    self._bilateral_filter_params = {
+      'd': 3,
+      'sigmaColor': 1,
+      'sigmaSpace': 1
+    }
     self._camera, self._poses, self.image_paths = self._loadData()
     self._length = self._poses.shape[0] 
     
@@ -34,7 +39,7 @@ class Loader():
       self._poses[:,3,3] = 1
       self._poses[:,:3,:] = ar
       data = pd.read_csv(base+'/K.txt', header = None) 
-      self._camera = data.to_numpy()[:3,:3]
+      self._camera = data.to_numpy()[:3, :3]
 
     elif self._name == 'malaga':
       p = base + 'malaga-urban-dataset-extract-07_rectified_1024x768_Images'
@@ -58,7 +63,7 @@ class Loader():
   def getImage(self, id):
     if id >= self._length or id < 0: 
        raise AssertionError
-    return cv2.imread(self._image_paths[id] , cv2.IMREAD_GRAYSCALE) #Image.open( self._image_paths[id] )
+    return cv2.bilateralFilter(cv2.imread(self._image_paths[id] , cv2.IMREAD_GRAYSCALE), **self._bilateral_filter_params) #Image.open( self._image_paths[id] )
 
   def getPose(self, id):
     if id >= self._length or id < 0: 
