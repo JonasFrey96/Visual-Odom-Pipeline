@@ -22,7 +22,7 @@ class Pipeline():
     self._visu.update(self._loader.getImage(self._t_loader), self._state)
     self._visu.render()
 
-  def _select_keyframe(self, threshold=0.2):
+  def _select_keyframe(self, threshold=0.075):
     """Based on Lecture 10 (Multiple View Geometry 4).
     When keyframe distance/average-landmark-depth > threshold (10 - 20%).
     """
@@ -104,7 +104,7 @@ class Pipeline():
     im, H_gt = self._loader.getFrame(self._t_loader)
 
     # Extend track lengths (Remove points that failed to track into current frame)
-    self._state._tracked_kp = self._extractor.extend_tracks(im, self._state._tracked_kp, max_bidir_error=10)
+    self._state._tracked_kp = self._extractor.extend_tracks(im, self._state._tracked_kp, max_bidir_error=30)
 
     # Obtain 3D-2D Correspondences
     matches = self._extractor.match_lists(self._state._landmarks, self._state._tracked_kp)
@@ -130,15 +130,15 @@ class Pipeline():
     # Update trajectory
     self._state._trajectory.append(self._t_step, H1)
 
-    # # Triangulate if keyframe
-    # if self._select_keyframe():
-    #   landmarks_new = self._extractor.triangulate_tracks(self._K,
-    #                                                      self._state._tracked_kp,
-    #                                                      self._state._trajectory,
-    #                                                      self._t_step,
-    #                                                      min_track_length=2)
-    #   self._state._landmarks += landmarks_new
-    #   self._keyframes.append(self._t_step)
+    # Triangulate if keyframe
+    if self._select_keyframe():
+      landmarks_new = self._extractor.triangulate_tracks(self._K,
+                                                         self._state._tracked_kp,
+                                                         self._state._trajectory,
+                                                         self._t_step,
+                                                         min_track_length=4)
+      self._state._landmarks += landmarks_new
+      self._keyframes.append(self._t_step)
 
     # Detect new features and initialize new tracks
     kp_new = self._extractor.extract(im, self._t_step, self._state._tracked_kp, detector='sift')

@@ -90,6 +90,7 @@ class Extractor():
       kp = cv2.KeyPoint_convert(cv_kp)
 
     cv_kp, desc = self._descriptor.compute(img, cv_kp)
+    kp = cv2.KeyPoint_convert(cv_kp)
 
     # Build output
     return [Keypoint(t_first=t, t_total=1, uv_first=kp[i, :].reshape((2, 1)),
@@ -145,8 +146,8 @@ class Extractor():
     if corr == '2D-2D':
       """Get pose from 2D-2D correspondences"""
       # Compute essential matrix
-      kp_1_pts = np.array([kp.uv for kp in list_1]).astype(np.float32)
-      kp_2_pts = np.array([kp.uv for kp in list_2]).astype(np.float32)
+      kp_1_pts = np.array([kp.uv.T for kp in list_1]).astype(np.float32)
+      kp_2_pts = np.array([kp.uv.T for kp in list_2]).astype(np.float32)
       E, mask = cv2.findEssentialMat(kp_1_pts, kp_2_pts, K, prob=0.999, method=cv2.RANSAC, mask=None, threshold=1.0)
       # Remove outliers and recover pose
       inliers = np.nonzero(mask)[0]
@@ -158,7 +159,7 @@ class Extractor():
       """Get pose from 3D-2D correspondences"""
       # Compute essential matrix
       kp_db_pts_3d = np.array([kp.p.T for kp in list_1]).astype(np.float32)
-      kp_curr_pts = np.array([kp.uv for kp in list_2]).astype(np.float32)
+      kp_curr_pts = np.array([kp.uv.T for kp in list_2]).astype(np.float32)
 
       kp_db_pts_3d = kp_db_pts_3d.reshape((-1, 1, 3))
       kp_curr_pts = kp_curr_pts.reshape((-1, 1, 2))
@@ -171,48 +172,18 @@ class Extractor():
                                                       rvec=rvec, tvec=tvec,
                                                       reprojectionError=1.0,
                                                       iterationsCount=1000000,
-                                                      confidence=0.95)
+                                                      confidence=0.999)
       else:
         retval, rvec, t, inliers = cv2.solvePnPRansac(kp_db_pts_3d, kp_curr_pts,
                                                       K, None, reprojectionError=1.0,
                                                       iterationsCount=1000000,
-                                                      confidence=0.95)
+                                                      confidence=0.999)
       R, _ = cv2.Rodrigues(rvec)
 
     H = np.eye(4)
     H[:3, :3] = R
     H[:3, 3] = t.reshape((3,))
     return inliers.reshape((-1,)).tolist(), H
-
-  def relative_scale(self, K, traj, H1, land_db, land_curr):
-    """Re-triangulate landmarks to determine relative scale"""
-    land_pts_3d_old = []
-    land_pts_3d_new = []
-    for i, l in enumerate(land_db):
-      t0 = l.t_latest
-      H0 = traj._poses[t0]
-      converged = self.triangulate(K, H0, H1, [l], [land_curr[i]])
-      if len(converged) == 1:
-        land_pts_3d_new.append(land_curr[i].p)
-        land_pts_3d_old.append(land_db[i].p)
-
-    land_pts_3d_old = np.array(land_pts_3d_old).reshape((-1, 3))
-    land_pts_3d_new = np.array(land_pts_3d_new).reshape((-1, 3))
-
-    # Average the ratio of differences
-    pair_idxs = combinations(range(land_pts_3d_old.shape[0]), 2)
-    ratios = []
-    for i, idxs in enumerate(pair_idxs):
-      diff_old = np.linalg.norm(land_pts_3d_old[idxs[0], :] - land_pts_3d_old[idxs[1], :])
-      diff_new = np.linalg.norm(land_pts_3d_new[idxs[0], :] - land_pts_3d_new[idxs[1], :])
-      r = diff_old/diff_new
-      if (not np.isinf(r)) and (not np.isnan(r)):
-        ratios.append(diff_old/diff_new)
-
-      # TODO: Figure out how many old points to use
-      if i > 30:
-        break
-    return np.mean(np.array(ratios))
 
   def triangulate_tracks(self, K, tracked_kp, trajectory, t, min_track_length=5):
     """Triangulate tracks that exceed the minimum track length.
@@ -229,7 +200,7 @@ class Extractor():
       H1 = trajectory[len(trajectory)-1]
       for kp_1 in tracked_tri_1:
         kp_0 = Keypoint(kp_1.t_first, kp_1.t_total, kp_1.uv_first,
-                                    kp_1.uv_first, kp_1.des)
+                        kp_1.uv_first, kp_1.des)
         H0 = trajectory[kp_0.t_first]
         converged, l = self.triangulate(K, H0, H1, [kp_0], [kp_1], t)
         if len(converged):

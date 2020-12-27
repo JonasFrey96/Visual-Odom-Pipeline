@@ -91,12 +91,18 @@ class Visualizer():
     ax = self._fig.add_subplot(122)
     plt.title("Local Trajectory")
     traj = np.asarray(self._position_history).reshape((-1, 3))
-    ax.scatter(traj[:, 0], traj[:, 2], s=10, c='blue', facecolor=None)
+    traj_len = traj.shape[0]
+
+    ax.scatter(traj[max([0, traj_len-20]):, 0], traj[max([0, traj_len-20]):, 2], s=10, c='blue', facecolor=None)
     ax.set_aspect("equal")
     ax.set_adjustable("datalim")
+    xlims, ylims = ax.get_xlim(), ax.get_ylim()
+    ylims = (ylims[0], ylims[1]+10)
 
     # Draw landmarks in map
     ax.scatter(landmarks_3d[:, 0], landmarks_3d[:, 2], s=2, c='green', facecolor=None)
+    ax.set_ylim(ylims)
+    ax.set_xlim(xlims)
 
     self._fig.canvas.draw()
     im_vis = np.fromstring(self._fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
