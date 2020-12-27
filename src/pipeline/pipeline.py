@@ -15,6 +15,7 @@ class Pipeline():
     self._extractor = Extractor()
     self._visu = Visualizer(self._K)
     self._t_step = 1
+    self._landmark_memory_threshold = 2
     self._state, self._t_loader, self._tra_gt = self._get_init_state()
     self._extractor._im_prev = self._loader.getImage(self._t_loader)
     self._keyframes = [0, 1]
@@ -22,7 +23,7 @@ class Pipeline():
     self._visu.update(self._loader.getImage(self._t_loader), self._state)
     self._visu.render()
 
-  def _select_keyframe(self, threshold=0.075):
+  def _select_keyframe(self, threshold=0.10):
     """Based on Lecture 10 (Multiple View Geometry 4).
     When keyframe distance/average-landmark-depth > threshold (10 - 20%).
     """
@@ -42,10 +43,6 @@ class Pipeline():
     ratio = np.linalg.norm(H_rel[:3, 3])/avg_depth
     return ratio > threshold
 
-
-    # TODO: Implement
-    return False
-
   def _get_init_state(self):
     # Feature detection and matching
     t0, t1 = self._loader.getInit()
@@ -53,8 +50,8 @@ class Pipeline():
     im1, H1_gt = self._loader.getFrame(t1)
 
     # Initialize with SIFT kp's and descriptors
-    kp0 = self._extractor.extract(im0, 0, detector='sift')
-    kp1 = self._extractor.extract(im1, 1, detector='sift')
+    kp0 = self._extractor.extract(im0, 0, detector='custom')
+    kp1 = self._extractor.extract(im1, 1, detector='custom')
     matches = self._extractor.match_lists(kp0, kp1)
 
     # Split keypoints into matched (kp1_m, kp2_m) and un-matched (kp1_nm, kp2_nm)
@@ -104,23 +101,39 @@ class Pipeline():
     im, H_gt = self._loader.getFrame(self._t_loader)
 
     # Extend track lengths (Remove points that failed to track into current frame)
-    self._state._tracked_kp = self._extractor.extend_tracks(im, self._state._tracked_kp, max_bidir_error=30)
+    self._state._tracked_kp = self._extractor.extend_tracks(im, self._state._tracked_kp, max_bidir_error=150)
+
+    # Detect new features and initialize new tracks
+    self._state._tracked_kp += self._extractor.extract(im, self._t_step, self._state._tracked_kp, detector='custom',
+                                                       mask_radius=3)
 
     # Obtain 3D-2D Correspondences
     matches = self._extractor.match_lists(self._state._landmarks, self._state._tracked_kp)
 
-    landmarks_m, tracked_kp_m, kp_idx_nm = [], [], list(range(len(self._state._tracked_kp)))
+    landmarks_m, tracked_kp_m = [], []
+    landmark_idx_nm, kp_idx_nm = list(range(len(self._state._landmarks))), list(range(len(self._state._tracked_kp)))
     for match in matches:
       landmarks_m.append(self._state._landmarks[match.queryIdx])
       tracked_kp_m.append(self._state._tracked_kp[match.trainIdx])
       if match.trainIdx in kp_idx_nm:
         kp_idx_nm.remove(match.trainIdx)
+      if match.queryIdx in landmark_idx_nm:
+        landmark_idx_nm.remove(match.queryIdx)
 
     # Localize with tracked keypoints
     inliers, H1 = self._extractor.camera_pose(self._K, landmarks_m, tracked_kp_m, corr='3D-2D')
 
     # Remove unused landmarks (un-matched, outliers)
     self._state._landmarks = [landmarks_m[i] for i in inliers]
+
+    # # Alternative Approach: Keep unobserved landmarks for a while
+    # for i in inliers:
+    #   landmarks_m[i].t_latest = self._t_step
+    #
+    # # Remove landmarks we haven't seen in a while
+    # landmarks_nm = [self._state._landmarks[i] for i in landmark_idx_nm
+    #                 if self._state._landmarks[i].t_latest < (self._t_step - self._landmark_memory_threshold)]
+    # self._state._landmarks = landmarks_m + landmarks_nm
 
     # Remove outlier tracks, update tracks
     tracked_kp_nm = [self._state._tracked_kp[i] for i in kp_idx_nm]
@@ -131,18 +144,16 @@ class Pipeline():
     self._state._trajectory.append(self._t_step, H1)
 
     # Triangulate if keyframe
-    if self._select_keyframe():
-      landmarks_new = self._extractor.triangulate_tracks(self._K,
+    if self._select_keyframe(threshold=0.025):
+      landmarks_new, tracked_kp_new = self._extractor.triangulate_tracks(self._K,
                                                          self._state._tracked_kp,
                                                          self._state._trajectory,
-                                                         self._t_step,
-                                                         min_track_length=4)
+                                                         t_curr=self._t_step,
+                                                         t_prev=self._keyframes[-1],
+                                                         min_track_length=2)
+      self._state._tracked_kp = tracked_kp_new
       self._state._landmarks += landmarks_new
       self._keyframes.append(self._t_step)
-
-    # Detect new features and initialize new tracks
-    kp_new = self._extractor.extract(im, self._t_step, self._state._tracked_kp, detector='sift')
-    self._state._tracked_kp += kp_new
 
     # Update visualizer
     self._visu.update(im, self._state)

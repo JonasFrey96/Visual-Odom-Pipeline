@@ -41,12 +41,16 @@ class Visualizer():
     """
     Update the state of the visualizer. K and pose are used to project
     the landmarks into the current image. Convert both landmark list and kp
-    list to a list of pixel coordinates
+    list to a list of pixel coordinates.
+
+    Indices of the landmarks observed in the current frame are needed
+    to avoid drawing out-of-frame landmarks.
     """
     # Update image
     self._im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
 
     # Store landmarks
+    # self._landmarks = [state._landmarks[i] for i in landmark_inlier_idxs]
     self._landmarks = state._landmarks
     self._landmark_history.append(len(self._landmarks))
 
@@ -79,25 +83,32 @@ class Visualizer():
     # Draw tracked keypoints
     ax.scatter(self._tracked_px[:, 0], self._tracked_px[:, 1], s=2, c='red', facecolor=None)
     ax.legend(["Landmarks", "Tracked"])
+    ax.set_xlim([0, self._im.shape[1]])
+    ax.set_ylim([self._im.shape[0], 0])
 
-    # Draw trajectory
+    # Plot Landmark history
     ax = self._fig.add_subplot(245)
     plt.title("# Landmarks")
     ax.plot(list(range(len(self._landmark_history))), self._landmark_history)
 
+    # Draw trajectory
+    traj = np.asarray(self._position_history).reshape((-1, 3))
+    traj_len = traj.shape[0]
     ax = self._fig.add_subplot(246)
     plt.title("Global Trajectory")
+    ax.scatter(traj[:, 0], traj[:, 2], s=10, c='blue', facecolor=None)
+    ax.set_aspect("equal")
+    ax.set_adjustable("datalim")
 
     ax = self._fig.add_subplot(122)
     plt.title("Local Trajectory")
-    traj = np.asarray(self._position_history).reshape((-1, 3))
-    traj_len = traj.shape[0]
-
     ax.scatter(traj[max([0, traj_len-20]):, 0], traj[max([0, traj_len-20]):, 2], s=10, c='blue', facecolor=None)
     ax.set_aspect("equal")
     ax.set_adjustable("datalim")
-    xlims, ylims = ax.get_xlim(), ax.get_ylim()
-    ylims = (ylims[0], ylims[1]+10)
+    xlims, ylims = [np.min(traj[max([0, traj_len-20]):, 0])-2,
+                    np.max(traj[max([0, traj_len-20]):, 0])+2], \
+                   [np.min(traj[max([0, traj_len-20]):, 2])-2,
+                    np.max(traj[max([0, traj_len-20]):, 2])+2]
 
     # Draw landmarks in map
     ax.scatter(landmarks_3d[:, 0], landmarks_3d[:, 2], s=2, c='green', facecolor=None)

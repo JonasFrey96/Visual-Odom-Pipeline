@@ -9,18 +9,6 @@ from extractor.triangulate import triangulatePoints_ILS
 from state.keypoint import Keypoint
 from state.landmark import Landmark
 
-def extract_features(img):
-  # Initiate STAR detector
-  orb = cv2.ORB_create()
-  # find the keypoints with ORB
-  kp = orb.detect(img,None)
-  # compute the descriptors with ORB
-  kp, des = orb.compute(img, kp)
-  # draw only keypoints location,not size and orientation
-  img2 = cv2.drawKeypoints(img, kp, img, color=(0,255,0), flags=0)
-  return kp, des, img2
-
-
 class Extractor():
   def __init__(self, cfg=None):
     self._cfg = cfg
@@ -29,16 +17,21 @@ class Extractor():
                            criteria=(
                            cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.03))
 
-    self._feature_params = dict(maxCorners=100,
+    self._shitomasi_params = dict(maxCorners=100,
                                 qualityLevel=0.3,
                                 minDistance=7,
                                 blockSize=11)
 
-    self._sift = cv2.SIFT_create()
-    self._descriptor = cv2.SIFT_create()
     self._feature_method = 'sift'
+    if self._feature_method == 'sift':
+      self._features = cv2.SIFT_create()
+      self._sift_ratio = 0.90
+    elif self._feature_method == 'orb':
+      self._features = cv2.ORB_create()
+    else:
+      exit()
     self._matcher = cv2.BFMatcher()
-    self._sift_ratio = 0.80
+
     self._im_prev = None
 
   def extend_tracks(self, im_curr, kp, max_bidir_error=30):
@@ -63,7 +56,7 @@ class Extractor():
     return new_tracks
 
 
-  def extract(self, img, t, current_kp=[], detector='sift'):
+  def extract(self, img, t, current_kp=[], detector='custom', mask_radius=5):
     """
     Given a grayscale image, detect keypoints and generate
     descriptors for each of them. Return a list of custom Keypoint objects.
@@ -83,13 +76,13 @@ class Extractor():
 
     # Detect and describe keypoints
     if detector == 'shi-tomasi':
-      kp = cv2.goodFeaturesToTrack(img, mask=mask, **self._feature_params) # Nx1x2
+      kp = cv2.goodFeaturesToTrack(img, mask=mask, **self._shitomasi_params)
       cv_kp = cv2.KeyPoint_convert(kp)
-    elif detector == 'sift':
-      cv_kp = self._sift.detect(img, mask=mask)
+    elif detector == 'custom':
+      cv_kp = self._features.detect(img, mask=mask)
       kp = cv2.KeyPoint_convert(cv_kp)
 
-    cv_kp, desc = self._descriptor.compute(img, cv_kp)
+    cv_kp, desc = self._features.compute(img, cv_kp)
     kp = cv2.KeyPoint_convert(cv_kp)
 
     # Build output
@@ -114,8 +107,9 @@ class Extractor():
     """Match two lists of keypoints/landmarks based on their descriptors.
     Returns a list of matches. Each match has m.queryIdx for list_1,
     and m.trainIdx for list_2."""
-    desc_1 = np.array([pt.des.reshape(1, 128) for pt in list_1]).reshape((len(list_1), -1))
-    desc_2 = np.array([pt.des.reshape(1, 128) for pt in list_2]).reshape((len(list_2), -1))
+    desc_dim = len(list_1[0].des)
+    desc_1 = np.array([pt.des.reshape(1, desc_dim) for pt in list_1]).reshape((len(list_1), -1))
+    desc_2 = np.array([pt.des.reshape(1, desc_dim) for pt in list_2]).reshape((len(list_2), -1))
     return self.match(desc_1, desc_2)
 
   def match_list(self, kp_1, desc_1, keypoints):
@@ -177,7 +171,8 @@ class Extractor():
         retval, rvec, t, inliers = cv2.solvePnPRansac(kp_db_pts_3d, kp_curr_pts,
                                                       K, None, reprojectionError=1.0,
                                                       iterationsCount=1000000,
-                                                      confidence=0.999)
+                                                      confidence=0.999,
+                                                      flags=cv2.SOLVEPNP_P3P)
       R, _ = cv2.Rodrigues(rvec)
 
     H = np.eye(4)
@@ -185,28 +180,35 @@ class Extractor():
     H[:3, 3] = t.reshape((3,))
     return inliers.reshape((-1,)).tolist(), H
 
-  def triangulate_tracks(self, K, tracked_kp, trajectory, t, min_track_length=5):
-    """Triangulate tracks that exceed the minimum track length.
-    Return the updated tracks. Tracks that we triangulate (successfully or not)
-    are removed."""
+  def triangulate_tracks(self, K, tracked_kp, trajectory, t_prev, t_curr, min_track_length=5):
+    """Triangulate tracks following 2 criteria:
+     (1) exceeds the minimum track length
+     (2) first observation was at an index *preceding* latest keyframe.
+
+     Remove tracked keypoints that get triangulated (whether succ. or not).
+    """
     landmarks = []
 
     # Split keypoint tracks based on track length threshold
     tracked_tri_1 = [kp for kp in tracked_kp if kp.t_total >= min_track_length]
+    tracked_notri = [kp for kp in tracked_kp if kp.t_total < min_track_length]
 
     if len(tracked_tri_1) > 0:
 
       # Triangulate keypoint tracks independently
       H1 = trajectory[len(trajectory)-1]
       for kp_1 in tracked_tri_1:
-        kp_0 = Keypoint(kp_1.t_first, kp_1.t_total, kp_1.uv_first,
-                        kp_1.uv_first, kp_1.des)
-        H0 = trajectory[kp_0.t_first]
-        converged, l = self.triangulate(K, H0, H1, [kp_0], [kp_1], t)
-        if len(converged):
-          landmarks += l
+        if kp_1.t_first <= t_prev:
+          kp_0 = Keypoint(kp_1.t_first, kp_1.t_total, kp_1.uv_first,
+                          kp_1.uv_first, kp_1.des)
+          H0 = trajectory[kp_0.t_first]
+          converged, l = self.triangulate(K, H0, H1, [kp_0], [kp_1], t_curr)
+          if len(converged):
+            landmarks += l
+        else:
+          tracked_notri.append(kp_1)
 
-    return landmarks
+    return landmarks, tracked_notri
 
   def triangulate(self, K, H0, H1, keyp0, keyp1, t):
     """
