@@ -13,9 +13,9 @@ class Pipeline():
   def __init__(self, loader):
     self._loader = loader
     self._K = loader.getCamera()
-    # TODO: Configurable window size
+    # TODO: Configurable window size for Extractor and BundleAdjuster
     self._extractor = Extractor()
-    self._bundle_adjuster = BundleAdjuster()
+    self._bundle_adjuster = BundleAdjuster(verbosity=0, window_size=3)
     self._visu = Visualizer(self._K)
     self._t_step = 1
     self._state, self._t_loader, self._tra_gt = self._get_init_state()
@@ -39,8 +39,8 @@ class Pipeline():
     kp0_m, kp1_m = [], []
     i0_nm, i1_nm = list(range(len(kp0))), list(range(len(kp1)))
     for match in matches:
-      kp0_m.append(kp0[match.queryIdx])
-      kp1_m.append(kp1[match.trainIdx])
+      kp0_m.append(deepcopy(kp0[match.queryIdx]))
+      kp1_m.append(deepcopy(kp1[match.trainIdx]))
       if match.queryIdx in i0_nm:
         i0_nm.remove(match.queryIdx)
       if match.trainIdx in i1_nm:
@@ -81,6 +81,7 @@ class Pipeline():
 
     # Extend track lengths (Remove points that failed to track into current frame)
     self._state._candidates_kp = self._extractor.extend_tracks(im, self._state._candidates_kp, max_bidir_error=np.inf)
+
     self._state._landmarks, self._state._landmarks_kp = self._extractor.extend_landmarks(im, self._state._landmarks, self._state._landmarks_kp, max_bidir_error=np.inf)
     self._extractor._im_prev = im.copy()
 
@@ -104,7 +105,7 @@ class Pipeline():
 
     # Localize with tracked keypoints
     inliers, H1 = self._extractor.camera_pose(self._K, self._state._landmarks, self._state._landmarks_kp, corr='3D-2D',
-                                              max_err_reproj=8.0)
+                                              max_err_reproj=1.0)
 
     # Remove bad landmarks (unused, outliers) and their keypoints
     self._state._landmarks = [self._state._landmarks[i] for i in inliers]
@@ -119,8 +120,8 @@ class Pipeline():
                                                                                                      self._state._trajectory,
                                                                                                      t_curr=self._t_step,
                                                                                                      min_track_length=2,
-                                                                                                     min_bearing_angle=0.5,
-                                                                                                     max_err_reproj=8.0)
+                                                                                                     min_bearing_angle=1,
+                                                                                                     max_err_reproj=1.0)
     self._state._landmarks_kp += landmarks_kp_new
     self._state._landmarks += landmarks_new
 

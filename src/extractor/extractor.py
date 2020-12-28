@@ -17,12 +17,12 @@ class Extractor():
                            criteria=(
                            cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.03))
 
-    self._shitomasi_params = dict(maxCorners=1000,
-                                qualityLevel=0.05,
+    self._shitomasi_params = dict(maxCorners=100,
+                                qualityLevel=0.3,
                                 minDistance=5,
                                 blockSize=31)
 
-    self._ba_window_size = 3
+    self._ba_window_size = 999 #
     self._feature_method = 'sift'
     if self._feature_method == 'sift':
       self._features = cv2.SIFT_create()
@@ -51,7 +51,7 @@ class Extractor():
       if 0 <= x <= im_curr.shape[1] and 0 <= y <= im_curr.shape[0]:
         k.uv = np.array([x, y]).reshape((2, 1))
         k.t_total += 1
-        k.uv_history.append(k.uv)
+        k.uv_history.append(np.array([x, y]).reshape((2, 1)))
         if len(k.uv_history) > self._ba_window_size:
           del k.uv_history[0]
         new_tracks.append(k)
@@ -67,17 +67,21 @@ class Extractor():
     d = abs(p0 - p0r).reshape(-1, 2).max(-1)
     good = d < max_bidir_error
     landmarks_new, kp_new = [], []
-    for l, k, (x, y), good_flag in zip(landmarks, landmarks_kp, p1.reshape(-1, 2), good):
+
+    p1 = p1.reshape((-1, 2)).tolist()
+    for i in range(len(landmarks)):
+      l, k, (x, y), good_flag = landmarks[i], landmarks_kp[i], p1[i], good[i]
       if not good_flag:
         continue
 
       if 0 <= x <= im_curr.shape[1] and 0 <= y <= im_curr.shape[0]:
         k.uv = np.array([x, y]).reshape((2, 1))
         k.t_total += 1
-        k.uv_history.append(k.uv)
+        k.uv_history.append(np.array([x, y]).reshape((2, 1)))
+
         if len(k.uv_history) > self._ba_window_size:
           del k.uv_history[0]
-        kp_new.append(k)
+        kp_new.append(deepcopy(k))
         landmarks_new.append(l)
 
     return landmarks_new, kp_new
@@ -234,21 +238,23 @@ class Extractor():
     landmarks - resulting 3D landmarks
     """
 
-    uv0 = np.array([kp.uv for kp in keyp0]).astype(np.float32)[:, None, :]
-    uv1 = np.array([kp.uv for kp in keyp1]).astype(np.float32)[:, None, :]
+    uv0 = np.array([kp.uv.T for kp in keyp0]).astype(np.float32).reshape((-1, 1, 2))
+    uv1 = np.array([kp.uv.T for kp in keyp1]).astype(np.float32).reshape((-1, 1, 2))
 
     # Construct projection matrices
     P_0 = (K @ H0[:3,:]).astype(np.float32)
     P_1 = (K @ H1[:3,:]).astype(np.float32)
-    # points_4D = cv2.triangulatePoints(P_0, P_1, uv0, uv1).reshape((4, -1)).T
-    # points_3D = (points_4D/points_4D[:, 3].reshape((-1, 1)))[:, :3]
-    points_3D, converged = triangulatePoints_ILS(P_0, P_1, uv0, uv1)
+    points_4D = cv2.triangulatePoints(P_0, P_1, uv0, uv1).reshape((4, -1)).T
+    points_3D = (points_4D/points_4D[:, 3].reshape((-1, 1)))[:, :3]
+    converged = list(range(points_3D.shape[0]))
+    # points_3D, converged = triangulatePoints_ILS(P_0, P_1, uv0, uv1)
+    # converged = np.argwhere(converged == 1).reshape((-1,))
 
     landmarks = []
-    for i, p in enumerate(points_3D):
-      landmarks.append(Landmark(t, p.reshape((3, 1)), keyp1[i].des))
+    for i, p in enumerate(points_3D.tolist()):
+      landmarks.append(Landmark(t, np.array(p).reshape((3, 1)), keyp1[i].des))
 
-    return np.argwhere(converged == 1).reshape((-1,)), landmarks
+    return converged, landmarks
 
 
   def reprojection_error(self, landmarks_3D, landmarks_2D, K, norm='L1', T=np.eye(4)):

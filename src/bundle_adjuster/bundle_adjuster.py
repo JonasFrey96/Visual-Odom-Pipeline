@@ -22,7 +22,7 @@ class BundleAdjuster():
         :param K: 3x3 camera matrix
         :return: vector of dimension (n_landmarks*2*window_size vector) with the (x, y) differences
         """
-        pixel_diffs = np.zeros((len(landmarks_kp)*2*self._window_size))
+        pixel_diffs = np.zeros((len(landmarks_kp)*self._window_size))
 
         P = x0[:len(landmarks_kp)*3].reshape((-1, 3))
         C = x0[len(landmarks_kp)*3:].reshape((-1, 6))
@@ -36,9 +36,9 @@ class BundleAdjuster():
             kp_proj = self._project(K, H_i, P)
 
             # Assemble pixels
-            kp = np.array([k.uv_history[len(k.uv_history)-1-i].T for k in landmarks_kp]).reshape((-1, 1))
+            kp = np.array([k.uv_history[len(k.uv_history)-1-i].T for k in landmarks_kp]).reshape((-1, 2))
 
-            pixel_diffs[2*i*len(landmarks_kp):2*(i+1)*len(landmarks_kp)] = (kp_proj-kp).reshape((-1,))
+            pixel_diffs[i*len(landmarks_kp):(i+1)*len(landmarks_kp)] = np.linalg.norm(kp_proj-kp, axis=1)
 
         return pixel_diffs
 
@@ -58,10 +58,7 @@ class BundleAdjuster():
 
         # Projection, De-homogenization
         P_new_homo = (M @ P_homo.T).T
-        P_new = (P_new_homo / P_new_homo[:, 2:3])[:, :2]
-
-        # Re-shape for sake of optimizer
-        return P_new.reshape((-1, 1))
+        return (P_new_homo / P_new_homo[:, 2:3])[:, :2]
 
     def _jacobian_sparsity(self, num_landmarks):
         """
@@ -74,12 +71,13 @@ class BundleAdjuster():
         first (n_landmarks*2) rows correspond to keypoints in the earliest timestep.
         :return:
         """
-        m = num_landmarks*self._window_size*2
+        m = num_landmarks*self._window_size
         n = num_landmarks*3 + self._window_size*6
         A = lil_matrix((m, n), dtype=int)
 
-        for i in range(num_landmarks*self._window_size):
-            A[2*i:2*i+2, 3*i:3*i+3] = 1
+        for i in range(num_landmarks):
+            for j in range(self._window_size):
+                A[j*num_landmarks+i, 3*i:3*i+3] = 1
 
         for i in range(self._window_size):
             A[:num_landmarks*i, 3*num_landmarks + 6*i:6*i+6] = 1
@@ -87,7 +85,7 @@ class BundleAdjuster():
         return A
 
 
-    def adjust(self, K, state):
+    def adjust(self, K, state, max_err_reproj=4.0):
         """Bundle adjust the camera poses, and 3D landmarks.
         # TODO: Also adjust the keypoints?
         from the <window_size> most recent frames."""
@@ -104,7 +102,6 @@ class BundleAdjuster():
 
         if len(landmarks) > 0:
             n_landmarks = len(landmarks)
-            print(f"Bundle adjusting {n_landmarks} landmarks and last {self._window_size} poses...")
 
             # Construct x0
             x0 = np.zeros((3*n_landmarks + 6*self._window_size))
@@ -128,10 +125,11 @@ class BundleAdjuster():
                                 args=(landmarks_kp, K))
             # loss_1 = res.cost
             # Build output
+            landmarks_filtered, landmarks_kp_filtered = [], []
             for i in range(len(landmarks)):
                 # P_old = landmarks[i].p.copy()
                 # P_new = res.x[3 * i:3 * i + 3].reshape((3, 1))
-                landmarks[i].p = res.x[3*i:3*i+3].reshape((3, 1))
+                landmarks[i].p = res.x[3 * i:3 * i + 3].reshape((3, 1))
 
             for i in range(self._window_size):
                 H_i = np.eye(4)
@@ -139,9 +137,6 @@ class BundleAdjuster():
                 H_i[:3, 3] = res.x[n_landmarks*3+6*i+3:n_landmarks*3+6*i+6].reshape((3,))
                 state._trajectory._poses[len(state._trajectory)-1-i] = H_i
 
-            state._landmarks = landmarks_unused + landmarks
-
-            # TODO: Remove landmarks with high re-projection error ?
             return state
         else:
             return state
