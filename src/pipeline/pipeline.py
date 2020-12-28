@@ -6,13 +6,16 @@ from visu import Visualizer
 import logging
 from extractor import Extractor
 from state import Keypoint, Trajectory
+from bundle_adjuster import BundleAdjuster
 import cv2
 
 class Pipeline():
   def __init__(self, loader):
     self._loader = loader
     self._K = loader.getCamera()
+    # TODO: Configurable window size
     self._extractor = Extractor()
+    self._bundle_adjuster = BundleAdjuster()
     self._visu = Visualizer(self._K)
     self._t_step = 1
     self._state, self._t_loader, self._tra_gt = self._get_init_state()
@@ -101,7 +104,7 @@ class Pipeline():
 
     # Localize with tracked keypoints
     inliers, H1 = self._extractor.camera_pose(self._K, self._state._landmarks, self._state._landmarks_kp, corr='3D-2D',
-                                              max_err_reproj=4.0)
+                                              max_err_reproj=8.0)
 
     # Remove bad landmarks (unused, outliers) and their keypoints
     self._state._landmarks = [self._state._landmarks[i] for i in inliers]
@@ -116,14 +119,17 @@ class Pipeline():
                                                                                                      self._state._trajectory,
                                                                                                      t_curr=self._t_step,
                                                                                                      min_track_length=2,
-                                                                                                     min_bearing_angle=2.5,
-                                                                                                     max_err_reproj=1.0)
+                                                                                                     min_bearing_angle=0.5,
+                                                                                                     max_err_reproj=8.0)
     self._state._landmarks_kp += landmarks_kp_new
     self._state._landmarks += landmarks_new
 
     # Detect new features and initialize new tracks
     self._state._candidates_kp += self._extractor.extract(im, self._t_step, self._state._landmarks_kp+self._state._candidates_kp, detector='shi-tomasi',
                                                           mask_radius=10)
+
+    # Bundle Adjustment
+    self._state = self._bundle_adjuster.adjust(self._state)
 
     # Update visualizer
     self._visu.update(im, self._state)
