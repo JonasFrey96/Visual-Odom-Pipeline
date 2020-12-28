@@ -18,6 +18,7 @@ class Keypoint:
     uv_first: np.array
     uv: np.array
     des: np.array
+    uv_history: list
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ class Extractor():
                                 minDistance=5,
                                 blockSize=31)
 
+    self._ba_window_size = 3
     self._feature_method = 'sift'
     if self._feature_method == 'sift':
       self._features = cv2.SIFT_create()
@@ -50,6 +51,9 @@ class Extractor():
       if 0 <= x <= im_curr.shape[1] and 0 <= y <= im_curr.shape[0]:
         k.uv = np.array([x, y]).reshape((2, 1))
         k.t_total += 1
+        k.uv_history.append(k.uv)
+        if len(k.uv_history) > self._ba_window_size:
+          del k.uv_history[0]
         new_tracks.append(k)
 
     return new_tracks
@@ -70,6 +74,9 @@ class Extractor():
       if 0 <= x <= im_curr.shape[1] and 0 <= y <= im_curr.shape[0]:
         k.uv = np.array([x, y]).reshape((2, 1))
         k.t_total += 1
+        k.uv_history.append(k.uv)
+        if len(k.uv_history) > self._ba_window_size:
+          del k.uv_history[0]
         kp_new.append(k)
         landmarks_new.append(l)
 
@@ -91,7 +98,7 @@ class Extractor():
     mask = np.zeros_like(img)
     mask[:] = 255
     for x, y in [np.int32(kp.uv) for kp in current_kp]:
-      cv2.circle(mask, (x, y), 5, 0, -1)
+      cv2.circle(mask, (x, y), mask_radius, 0, -1)
 
     # Detect and describe keypoints
     if detector == 'shi-tomasi':
@@ -106,7 +113,8 @@ class Extractor():
 
     # Build output
     return [Keypoint(t_first=t, t_total=1, uv_first=kp[i, :].reshape((2, 1)),
-                     uv=kp[i, :].reshape((2, 1)), des=desc[i, :].reshape((-1, 1)))
+                     uv=kp[i, :].reshape((2, 1)), des=desc[i, :].reshape((-1, 1)),
+                     uv_history=[kp[i, :].reshape((2, 1))])
             for i in range(len(kp))]
 
   def match(self, desc_1, desc_2):
@@ -187,7 +195,7 @@ class Extractor():
       H1 = trajectory[len(trajectory)-1]
       for kp_1 in landmarks_kp_new:
         kp_0 = Keypoint(kp_1.t_first, kp_1.t_total, kp_1.uv_first,
-                        kp_1.uv_first, kp_1.des)
+                        kp_1.uv_first, kp_1.des, [kp_1.uv_first])
         H0 = trajectory[kp_0.t_first]
         converged, l = self.triangulate(K, H0, H1, [kp_0], [kp_1], t_curr)
         if len(converged):
