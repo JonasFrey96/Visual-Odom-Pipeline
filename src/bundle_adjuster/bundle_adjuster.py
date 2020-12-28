@@ -2,14 +2,146 @@ from scipy.optimize import least_squares
 import numpy as np
 import time
 import matplotlib.pyplot as plt
+from cv2 import Rodrigues
+from scipy.sparse import lil_matrix
 
 class BundleAdjuster():
-    def __init__(self, ftol=1e-4, method='trf', verbosity=2):
+    def __init__(self, ftol=1e-4, method='trf', verbosity=2, window_size=3):
         self._ftol = ftol
         self._method = method
         self._verbosity = verbosity
+        self._window_size = window_size
 
-    def adjust(self, state, window_size=3):
-        """Bundle adjust the camera poses, landmarks, and landmark kp's
+    def _nonlinear_objective(self, x0, landmarks_kp, K):
+        """
+        Compute the total re-projection error using the last <window_size> frames.
+        x0 contains landmark coordinates in XYZ, and camera poses <rvec, tvec>
+
+        :param x0: vector of dimension (n_landmarks*3 + window_size*6)
+        :param landmarks_kp: list of landmark keypoints
+        :param K: 3x3 camera matrix
+        :return: vector of dimension (n_landmarks*2*window_size vector) with the (x, y) differences
+        """
+        pixel_diffs = np.zeros((len(landmarks_kp)*2*self._window_size))
+
+        P = x0[:len(landmarks_kp)*3].reshape((-1, 3))
+        C = x0[len(landmarks_kp)*3:].reshape((-1, 6))
+        for i in range(self._window_size):
+            # Reconstruct transformation matrix from pose vector
+            H_i = np.zeros((4, 4))
+            H_i[:3, :3], _ = Rodrigues(C[i, :3])
+            H_i[:3, 3] = C[i, 3:].reshape((3,))
+
+            # Project landmarks using H and landmarks
+            kp_proj = self._project(K, H_i, P)
+
+            # Assemble pixels
+            kp = np.array([k.uv_history[len(k.uv_history)-1-i].T for k in landmarks_kp]).reshape((-1, 1))
+
+            pixel_diffs[2*i*len(landmarks_kp):2*(i+1)*len(landmarks_kp)] = (kp_proj-kp).reshape((-1,))
+
+        return pixel_diffs
+
+
+    def _project(self, K, H, P):
+        """
+        Project 3D points using a camera matrix and transformation matrix.
+        :param K: 3x3 camera matrix
+        :param H: 4x4 camera pose transformation matrix
+        :param P: Nx3 matrix of landmark 3D positions
+        :return: vector of dimensions N*2. Rows alternate x and y coordinates.
+        """
+
+        # Construct Projection Matrix, Homogenize P
+        M = K @ H[:3, :]
+        P_homo = np.concatenate([P, np.ones((P.shape[0], 1))], axis=1)
+
+        # Projection, De-homogenization
+        P_new_homo = (M @ P_homo.T).T
+        P_new = (P_new_homo / P_new_homo[:, 2:3])[:, :2]
+
+        # Re-shape for sake of optimizer
+        return P_new.reshape((-1, 1))
+
+    def _jacobian_sparsity(self, num_landmarks):
+        """
+        Assuming we only optimize over camera poses and landmarks..
+        x0 has dimension (n_landmarks*3 + n_poses*6), so..
+
+        Return an (n_landmarks*window_size*2) x (n_landmarks*3 + n_poses*6)
+        matrix indicating which optimization parameters affect which keypoints
+
+        first (n_landmarks*2) rows correspond to keypoints in the earliest timestep.
+        :return:
+        """
+        m = num_landmarks*self._window_size*2
+        n = num_landmarks*3 + self._window_size*6
+        A = lil_matrix((m, n), dtype=int)
+
+        for i in range(num_landmarks*self._window_size):
+            A[2*i:2*i+2, 3*i:3*i+3] = 1
+
+        for i in range(self._window_size):
+            A[:num_landmarks*i, 3*num_landmarks + 6*i:6*i+6] = 1
+
+        return A
+
+
+    def adjust(self, K, state):
+        """Bundle adjust the camera poses, and 3D landmarks.
+        # TODO: Also adjust the keypoints?
         from the <window_size> most recent frames."""
-        return state
+
+        # Filter the landmarks - only use those that have been tracked over the adjustment window
+        landmarks, landmarks_kp, landmarks_unused = [], [], []
+        for i in range(len(state._landmarks)):
+            l_kp = state._landmarks_kp[i]
+            if len(l_kp.uv_history) >= self._window_size:
+                landmarks_kp.append(l_kp)
+                landmarks.append(state._landmarks[i])
+            else:
+                landmarks_unused.append(state._landmarks[i])
+
+        if len(landmarks) > 0:
+            n_landmarks = len(landmarks)
+            print(f"Bundle adjusting {n_landmarks} landmarks and last {self._window_size} poses...")
+
+            # Construct x0
+            x0 = np.zeros((3*n_landmarks + 6*self._window_size))
+            for i, l in enumerate(landmarks):
+                x0[3*i:3*i+3] = l.p.reshape((3,))
+
+            for i in range(self._window_size):
+                H = state._trajectory[len(state._trajectory)-1-i]
+                rvec, _ = Rodrigues(H[:3, :3])
+                tvec = H[:3, 3]
+                x0[3*n_landmarks+6*i: 3*n_landmarks+6*i+3] = rvec.reshape((3,))
+                x0[3*n_landmarks+6*i+3: 3*n_landmarks+6*i+6] = tvec.reshape((3,))
+
+            # Jacobian Sparsity
+            A = self._jacobian_sparsity(n_landmarks)
+
+            # loss_0 = np.sum(np.power(self._nonlinear_objective(x0, landmarks_kp, K), 2))/len(landmarks_kp)
+            res = least_squares(self._nonlinear_objective, x0, jac_sparsity=A,
+                                verbose=self._verbosity, x_scale='jac',
+                                ftol=self._ftol, method=self._method,
+                                args=(landmarks_kp, K))
+            # loss_1 = res.cost
+            # Build output
+            for i in range(len(landmarks)):
+                # P_old = landmarks[i].p.copy()
+                # P_new = res.x[3 * i:3 * i + 3].reshape((3, 1))
+                landmarks[i].p = res.x[3*i:3*i+3].reshape((3, 1))
+
+            for i in range(self._window_size):
+                H_i = np.eye(4)
+                H_i[:3, :3], _ = Rodrigues(res.x[n_landmarks*3+6*i:n_landmarks*3+6*i+3])
+                H_i[:3, 3] = res.x[n_landmarks*3+6*i+3:n_landmarks*3+6*i+6].reshape((3,))
+                state._trajectory._poses[len(state._trajectory)-1-i] = H_i
+
+            state._landmarks = landmarks_unused + landmarks
+
+            # TODO: Remove landmarks with high re-projection error ?
+            return state
+        else:
+            return state

@@ -129,7 +129,7 @@ class Pipeline():
                                                           mask_radius=10)
 
     # Bundle Adjustment
-    self._state = self._bundle_adjuster.adjust(self._state)
+    self._state = self._bundle_adjuster.adjust(self._K, self._state)
 
     # Update visualizer
     self._visu.update(im, self._state)
