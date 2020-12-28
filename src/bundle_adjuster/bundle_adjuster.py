@@ -1,9 +1,8 @@
 from scipy.optimize import least_squares
 import numpy as np
-import time
-import matplotlib.pyplot as plt
 from cv2 import Rodrigues
 from scipy.sparse import lil_matrix
+import logging
 
 class BundleAdjuster():
     def __init__(self, ftol=1e-4, method='trf', verbosity=2, window_size=3):
@@ -85,7 +84,7 @@ class BundleAdjuster():
         return A
 
 
-    def adjust(self, K, state, max_err_reproj=4.0):
+    def adjust(self, K, state):
         """Bundle adjust the camera poses, and 3D landmarks.
         # TODO: Also adjust the keypoints?
         from the <window_size> most recent frames."""
@@ -102,6 +101,7 @@ class BundleAdjuster():
 
         if len(landmarks) > 0:
             n_landmarks = len(landmarks)
+            logging.info(f"Bundle adjusting {n_landmarks} landmarks over last {self._window_size} frames")
 
             # Construct x0
             x0 = np.zeros((3*n_landmarks + 6*self._window_size))
@@ -118,17 +118,12 @@ class BundleAdjuster():
             # Jacobian Sparsity
             A = self._jacobian_sparsity(n_landmarks)
 
-            # loss_0 = np.sum(np.power(self._nonlinear_objective(x0, landmarks_kp, K), 2))/len(landmarks_kp)
             res = least_squares(self._nonlinear_objective, x0, jac_sparsity=A,
                                 verbose=self._verbosity, x_scale='jac',
                                 ftol=self._ftol, method=self._method,
                                 args=(landmarks_kp, K))
-            # loss_1 = res.cost
             # Build output
-            landmarks_filtered, landmarks_kp_filtered = [], []
             for i in range(len(landmarks)):
-                # P_old = landmarks[i].p.copy()
-                # P_new = res.x[3 * i:3 * i + 3].reshape((3, 1))
                 landmarks[i].p = res.x[3 * i:3 * i + 3].reshape((3, 1))
 
             for i in range(self._window_size):

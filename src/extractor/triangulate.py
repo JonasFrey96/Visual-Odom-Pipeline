@@ -1,7 +1,127 @@
-"""https://github.com/Eliasvan/Multiple-Quadrotor-SLAM/blob/master/Work/python_libs/triangulation.py"""
 import cv2
 import numpy as np
+from scipy.optimize import least_squares
+from scipy.sparse import lil_matrix
+import logging
 
+class TriangulatorNL():
+    def __init__(self, ftol=1e-4, method='trf', verbosity=2):
+        self._ftol = ftol
+        self._method = method
+        self._verbosity = verbosity
+
+    def _nonlinear_objective(self, x0, K, H0, H1):
+        """
+        Compute the re-projection error.
+
+        The optimization objective x0 has dimension (n_landmarks*(3+4)).
+        Format is [X0 Y0 Z0, X1 Y1 Z1 ..., XN YN ZN, x0 y0 x0' y0', ... xN yN xN' yN']
+        Xi Yi Zi are the landmark 3D coords, while xi yi xi' yi' are the
+        pixel coordinates that were used to triangulate the landmark.
+        """
+        n_landmarks = len(x0)//7
+        P = x0[:n_landmarks*3].reshape((-1, 3))
+        x_kp = x0[n_landmarks*3:].reshape((-1, 4))
+        x_proj = self._project_dual(P, K, H0, H1)
+        diffs = x_kp - x_proj # Component-wise differences
+        return np.linalg.norm(diffs[:, :2], axis=1) + np.linalg.norm(diffs[:, 2:], axis=1)
+
+    def _project_dual(self, P, K, H0, H1):
+        return np.hstack([self._project(K, H0, P), self._project(K, H1, P)])
+
+    def _project(self, K, H, P):
+        """
+        Project 3D points using a camera matrix and transformation matrix.
+        :param K: 3x3 camera matrix
+        :param H: 4x4 camera pose transformation matrix
+        :param P: Nx3 matrix of landmark 3D positions
+        :return: matrix has dim Nx2
+        """
+        # Construct Projection Matrix, Homogenize P
+        M = K @ H[:3, :]
+        P_homo = np.concatenate([P, np.ones((P.shape[0], 1))], axis=1)
+
+        # Projection, De-homogenization
+        P_new_homo = (M @ P_homo.T).T
+        return (P_new_homo / P_new_homo[:, 2:3])[:, :2]
+
+    def _jacobian_sparsity(self, num_landmarks):
+        """
+        We optimize the landmarks as well as their keypoints, so
+        x0 has dimension (n_landmarks*(3+4))
+
+        Return an (n_landmarks) x (n_landmarks*(3+4))
+        matrix indicating which optimization parameters affect which keypoints
+
+        Each row corresponds to the re-projection error term for a single
+        landmark.
+
+        Each (n_landmarks*3) columns correspond to landmark XYZ.
+        Afterwards, alternates (x0,y0,x1,y1).
+        :return:
+        """
+        m = num_landmarks
+        n = num_landmarks*(3+4)
+        A = lil_matrix((m, n), dtype=int)
+
+        for i in range(num_landmarks):
+            A[i, i*3:i*3+3] = 1
+            A[(num_landmarks*3)+(4*i):(num_landmarks*3)+(4*i+4)] = 1
+
+        return A
+
+    def refine(self, K, landmarks, H0, H1, keyp0, keyp1, max_err_reproj=4.0):
+        """Non-linearly refine the results of a triangulation.
+        Remove landmarks with high reprojection error."""
+        n_landmarks_init = len(landmarks)
+
+        # Construct x0
+        x0 = np.zeros(n_landmarks_init*(3+4))
+        for i, (l, kp0, kp1) in enumerate(zip(landmarks, keyp0, keyp1)):
+            x0[3*i:3*i+3] = l.p.reshape((3,))
+            x0[(n_landmarks_init*3)+(4*i):(n_landmarks_init*3)+(4*i+2)] = kp0.uv.reshape((2,))
+            x0[(n_landmarks_init*3)+(4*i+2):(n_landmarks_init*3)+(4*i+4)] = kp1.uv.reshape((2,))
+
+        # Discard points with high re-projection error
+        f0 = self._nonlinear_objective(x0, K, H0, H1)
+        good = f0 < max_err_reproj
+        landmarks = [landmarks[i] for i in range(n_landmarks_init) if good[i]]
+        keyp0 = [keyp0[i] for i in range(n_landmarks_init) if good[i]]
+        keyp1 = [keyp1[i] for i in range(n_landmarks_init) if good[i]]
+        n_landmarks = len(landmarks)
+        if n_landmarks == 0:
+            return [], [], []
+
+        # Re-construct x0
+        x0 = np.zeros(n_landmarks*(3+4))
+        for i, (l, kp0, kp1) in enumerate(zip(landmarks, keyp0, keyp1)):
+            x0[3*i:3*i+3] = l.p.reshape((3,))
+            x0[(n_landmarks*3)+(4*i):(n_landmarks*3)+(4*i+2)] = kp0.uv.reshape((2,))
+            x0[(n_landmarks*3)+(4*i+2):(n_landmarks*3)+(4*i+4)] = kp1.uv.reshape((2,))
+
+        # Jacobian Sparsity
+        A = self._jacobian_sparsity(n_landmarks)
+
+        res = least_squares(self._nonlinear_objective, x0, jac_sparsity=A,
+                            verbose=self._verbosity, x_scale='jac',
+                            ftol=self._ftol, method=self._method,
+                            args=(K, H0, H1))
+        # Build output
+        for i in range(len(landmarks)):
+            landmarks[i].p = res.x[3 * i:3 * i + 3].reshape((3, 1))
+            keyp0[i].uv = res.x[(n_landmarks*3)+(4*i):(n_landmarks*3)+(4*i+2)].reshape((2, 1))
+            keyp1[i].uv = res.x[(n_landmarks*3)+(4*i+2):(n_landmarks*3)+(4*i+4)].reshape((2, 1))
+
+        # Remove points with high re-projection error
+        good = res.fun < max_err_reproj
+        landmarks = [landmarks[i] for i in range(n_landmarks) if good[i]]
+        keyp0 = [keyp0[i] for i in range(n_landmarks) if good[i]]
+        keyp1 = [keyp1[i] for i in range(n_landmarks) if good[i]]
+
+        return landmarks, keyp0, keyp1
+
+
+"""https://github.com/Eliasvan/Multiple-Quadrotor-SLAM/blob/master/Work/python_libs/triangulation.py"""
 # Initialize consts to be used in iterative_LS_triangulation()
 iterative_LS_triangulation_C = -np.eye(2, 3)
 
