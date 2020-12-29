@@ -5,23 +5,25 @@ import cv2
 from copy import deepcopy
 from itertools import combinations
 from matplotlib import pyplot as plt
-from extractor.triangulate import triangulatePoints_ILS
+from extractor.triangulate import TriangulatorNL
 from state.keypoint import Keypoint
 from state.landmark import Landmark
 
 class Extractor():
-  def __init__(self, cfg=None):
+  def __init__(self, cfg=None, min_kp_dist=10):
     self._cfg = cfg
+    self._triangulate_nl = TriangulatorNL(verbosity=0)
     self._lk_params = dict(winSize=(31, 31),
                            maxLevel=3,
                            criteria=(
                            cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.03))
 
     self._shitomasi_params = dict(maxCorners=1000,
-                                qualityLevel=0.05,
-                                minDistance=5,
-                                blockSize=31)
+                                  qualityLevel=0.1,
+                                  minDistance=min_kp_dist,
+                                  blockSize=51)
 
+    self._ba_window_size = 999 #
     self._feature_method = 'sift'
     if self._feature_method == 'sift':
       self._features = cv2.SIFT_create()
@@ -35,22 +37,27 @@ class Extractor():
     self._im_prev = None
 
   def extend_tracks(self, im_curr, kp, max_bidir_error=30):
-    # KLT tracking of keypoints
-    im0, im1 = self._im_prev, im_curr
-    p0 = np.float32([k.uv for k in kp]).reshape(-1, 1, 2)
-    p1, _st, _err = cv2.calcOpticalFlowPyrLK(im0, im1, p0, None, **self._lk_params)
-    p0r, _st, _err = cv2.calcOpticalFlowPyrLK(im0, im1, p1, None, **self._lk_params)
-    d = abs(p0 - p0r).reshape(-1, 2).max(-1)
-    good = d < max_bidir_error
+    # KLT tracking of candidate keypoints
     new_tracks = []
-    for k, (x, y), good_flag in zip(kp, p1.reshape(-1, 2), good):
-      if not good_flag:
-        continue
+    if len(kp):
+      im0, im1 = self._im_prev, im_curr
+      p0 = np.float32([k.uv.T for k in kp]).reshape(-1, 1, 2)
+      p1, _st, _err = cv2.calcOpticalFlowPyrLK(im0, im1, p0, None, **self._lk_params)
+      p0r, _st, _err = cv2.calcOpticalFlowPyrLK(im0, im1, p1, None, **self._lk_params)
+      d = abs(p0 - p0r).reshape(-1, 2).max(-1)
+      good = d < max_bidir_error
 
-      if 0 <= x <= im_curr.shape[1] and 0 <= y <= im_curr.shape[0]:
-        k.uv = np.array([x, y]).reshape((2, 1))
-        k.t_total += 1
-        new_tracks.append(k)
+      for k, (x, y), good_flag in zip(kp, p1.reshape(-1, 2), good):
+        if not good_flag:
+          continue
+
+        if 0 <= x <= im_curr.shape[1] and 0 <= y <= im_curr.shape[0]:
+          k.uv = np.array([x, y]).reshape((2, 1))
+          k.t_total += 1
+          k.uv_history.append(np.array([x, y]).reshape((2, 1)))
+          if len(k.uv_history) > self._ba_window_size:
+            del k.uv_history[0]
+          new_tracks.append(k)
 
     return new_tracks
 
@@ -63,19 +70,27 @@ class Extractor():
     d = abs(p0 - p0r).reshape(-1, 2).max(-1)
     good = d < max_bidir_error
     landmarks_new, kp_new = [], []
-    for l, k, (x, y), good_flag in zip(landmarks, landmarks_kp, p1.reshape(-1, 2), good):
+
+    p1 = p1.reshape((-1, 2)).tolist()
+    for i in range(len(landmarks)):
+      l, k, (x, y), good_flag = landmarks[i], landmarks_kp[i], p1[i], good[i]
       if not good_flag:
         continue
 
       if 0 <= x <= im_curr.shape[1] and 0 <= y <= im_curr.shape[0]:
         k.uv = np.array([x, y]).reshape((2, 1))
         k.t_total += 1
-        kp_new.append(k)
+        k.uv_history.append(np.array([x, y]).reshape((2, 1)))
+
+        if len(k.uv_history) > self._ba_window_size:
+          del k.uv_history[0]
+        kp_new.append(deepcopy(k))
         landmarks_new.append(l)
 
     return landmarks_new, kp_new
 
-  def extract(self, img, t, current_kp=[], detector='custom', mask_radius=5):
+  def extract(self, img, t, current_kp=[], detector='custom', mask_radius=5,
+              describe=False):
     """
     Given a grayscale image, detect keypoints and generate
     descriptors for each of them. Return a list of custom Keypoint objects.
@@ -91,7 +106,7 @@ class Extractor():
     mask = np.zeros_like(img)
     mask[:] = 255
     for x, y in [np.int32(kp.uv) for kp in current_kp]:
-      cv2.circle(mask, (x, y), 5, 0, -1)
+      cv2.circle(mask, (x, y), mask_radius, 0, -1)
 
     # Detect and describe keypoints
     if detector == 'shi-tomasi':
@@ -101,13 +116,22 @@ class Extractor():
       cv_kp = self._features.detect(img, mask=mask)
       kp = cv2.KeyPoint_convert(cv_kp)
 
-    cv_kp, desc = self._features.compute(img, cv_kp)
-    kp = cv2.KeyPoint_convert(cv_kp)
+      # TODO: filter out keypoints with bad cornerness
 
-    # Build output
-    return [Keypoint(t_first=t, t_total=1, uv_first=kp[i, :].reshape((2, 1)),
-                     uv=kp[i, :].reshape((2, 1)), des=desc[i, :].reshape((-1, 1)))
-            for i in range(len(kp))]
+    if not isinstance(kp, type(None)):
+      if describe:
+        cv_kp, desc = self._features.compute(img, cv_kp)
+        kp = cv2.KeyPoint_convert(cv_kp)
+      else:
+        desc = np.zeros((kp.shape[0], 1))
+
+      # Build output
+      return [Keypoint(t_first=t, t_total=1, uv_first=kp[i, :].reshape((2, 1)),
+                       uv=kp[i, :].reshape((2, 1)), des=desc[i, :].reshape((-1, 1)),
+                       uv_history=[kp[i, :].reshape((2, 1))])
+              for i in range(len(kp))]
+    else:
+      return []
 
   def match(self, desc_1, desc_2):
     if self._feature_method == 'sift':
@@ -160,8 +184,7 @@ class Extractor():
       retval, rvec, t, inliers = cv2.solvePnPRansac(kp_db_pts_3d, kp_curr_pts,
                                                     K, None, reprojectionError=max_err_reproj,
                                                     iterationsCount=1000000,
-                                                    confidence=0.99,
-                                                    flags=cv2.SOLVEPNP_P3P)
+                                                    confidence=0.99)
       R, _ = cv2.Rodrigues(rvec)
 
     H = np.eye(4)
@@ -169,53 +192,64 @@ class Extractor():
     H[:3, 3] = t.reshape((3,))
     return inliers.reshape((-1,)).tolist(), H
 
-  def triangulate_tracks(self, K, candidates_kp, trajectory, t_curr, min_track_length=5, min_bearing_angle=10, max_err_reproj=4.0):
+  def triangulate_tracks(self, K, candidates_kp, trajectory, t_curr, refine=True,
+                         min_track_length=5, min_bearing_angle=10, max_err_reproj=4.0):
     """Triangulate tracks that exceed the minimum track length.
-       Only create a new landmark if bearing angle exceeds the threshold.
-
-     Remove tracked keypoints that get triangulated (whether succ. or not).
-    """
-    landmarks_new = []
+        Only create a new landmark if bearing angle exceeds the threshold.
+        Non-linearly refine points and keypoints if flag is set.
+        Remove tracked keypoints that get triangulated (whether succ. or not)."""
+    landmarks_new, landmarks_kp_new = [], []
 
     # Split keypoint tracks based on track length threshold
-    landmarks_kp_new = [kp for kp in candidates_kp if kp.t_total >= min_track_length]
+    landmarks_kp_tmp = [kp for kp in candidates_kp if kp.t_total >= min_track_length] # Kp's we try to triangulate
     candidates_kp_new = [kp for kp in candidates_kp if kp.t_total < min_track_length]
 
-    if len(landmarks_kp_new) > 0:
+    if len(landmarks_kp_tmp) > 0:
 
-      # Triangulate keypoint tracks independently
-      H1 = trajectory[len(trajectory)-1]
-      for kp_1 in landmarks_kp_new:
-        kp_0 = Keypoint(kp_1.t_first, kp_1.t_total, kp_1.uv_first,
-                        kp_1.uv_first, kp_1.des)
-        H0 = trajectory[kp_0.t_first]
-        converged, l = self.triangulate(K, H0, H1, [kp_0], [kp_1], t_curr)
-        if len(converged):
-          # Compute bearing angle: theta = cosinv((b^2 + c^2 - a^2) / (2bc))
-          # a = baseline
-          # b, c = dist to landmark at t0 and t1
-          Hrel = H1 @ np.linalg.inv(H0)
-          P_homo = np.concatenate([l[0].p, np.zeros((1, 1))], axis=0).reshape((4, 1))
-          a = np.linalg.norm(Hrel)
-          b = np.linalg.norm(H0 @ P_homo)
-          c = np.linalg.norm(H1 @ P_homo)
-          bearing_angle = np.rad2deg(np.arccos((b*b + c*c - a*a)/(2*b*c)))
+      H1 = trajectory[len(trajectory) - 1]
 
-          # Compute reprojection error (Mean reprojection error btwn t0 and t1)
-          px_0 = K @ (H0 @ P_homo)[:3, 0:1]
-          px_0 = (px_0 / px_0[2:3, 0:1])[:2, 0:1]
-          err_0 = np.linalg.norm(kp_0.uv_first - px_0)
-          px_1 = K @ (H1 @ P_homo)[:3, 0:1]
-          px_1 = (px_1 / px_1[2:3, 0:1])[:2, 0:1]
-          err_1 = np.linalg.norm(kp_1.uv_first - px_1)
-          # err_reproj = np.mean([err_0, err_1])
-          err_reproj = 0
+      # Triangulate keypoint tracks in groups based on their t_first
+      t_first_groups = set([k.t_first for k in landmarks_kp_tmp])
+      for t_first in t_first_groups:
+        kp_1 = [kp for kp in landmarks_kp_tmp
+                if kp.t_first == t_first]
 
-          if (not np.isnan(bearing_angle)) and (bearing_angle > min_bearing_angle) \
-             and (err_reproj < max_err_reproj):
-            landmarks_new += l
+        H0 = trajectory[t_first]
+        kp_0 = deepcopy(kp_1)
+        for kp in kp_0:
+          kp.uv = kp.uv_first
+
+        l, kp_0, kp_1 = self.triangulate_nonlinear(K, H0, H1, kp_0, kp_1, t_curr, max_err_reproj=max_err_reproj)
+
+        if len(l):
+            kp_1[0].uv_first = kp_0[0].uv
+
+            # Compute bearing angle: theta = cosinv((b^2 + c^2 - a^2) / (2bc))
+            # a = baseline
+            # b, c = dist to landmark at t0 and t1
+            Hrel = H1 @ np.linalg.inv(H0)
+            P_homo = np.concatenate([l[0].p, np.zeros((1, 1))], axis=0).reshape((4, 1))
+            a = np.linalg.norm(Hrel)
+            b = np.linalg.norm(H0 @ P_homo)
+            c = np.linalg.norm(H1 @ P_homo)
+            bearing_angle = np.rad2deg(np.arccos((b*b + c*c - a*a)/(2*b*c)))
+
+            if (not np.isnan(bearing_angle)) and (bearing_angle > min_bearing_angle):
+              landmarks_new += l
+              landmarks_kp_new += kp_1
 
     return landmarks_new, landmarks_kp_new, candidates_kp_new
+
+  def triangulate_nonlinear(self, K, H0, H1, keyp0, keyp1, t, max_err_reproj=1.0):
+    """
+    Triangulate keypoints and non-linearly refine the results
+    (triangulated points as well as the original keypoints).
+
+    :param t: Needed for landmark creation
+    :return: landmarks, keyp0, keyp1 (Newly created landmarks, modified keypoints)
+    """
+    landmarks = self.triangulate(K, H0, H1, keyp0, keyp1, t)
+    return self._triangulate_nl.refine(K, landmarks, H0, H1, keyp0, keyp1, max_err_reproj) # landmarks, keyp0, keyp1
 
   def triangulate(self, K, H0, H1, keyp0, keyp1, t):
     """
@@ -226,21 +260,20 @@ class Extractor():
     landmarks - resulting 3D landmarks
     """
 
-    uv0 = np.array([kp.uv for kp in keyp0]).astype(np.float32)[:, None, :]
-    uv1 = np.array([kp.uv for kp in keyp1]).astype(np.float32)[:, None, :]
+    uv0 = np.array([kp.uv.T for kp in keyp0]).astype(np.float32).reshape((-1, 1, 2))
+    uv1 = np.array([kp.uv.T for kp in keyp1]).astype(np.float32).reshape((-1, 1, 2))
 
     # Construct projection matrices
     P_0 = (K @ H0[:3,:]).astype(np.float32)
     P_1 = (K @ H1[:3,:]).astype(np.float32)
-    # points_4D = cv2.triangulatePoints(P_0, P_1, uv0, uv1).reshape((4, -1)).T
-    # points_3D = (points_4D/points_4D[:, 3].reshape((-1, 1)))[:, :3]
-    points_3D, converged = triangulatePoints_ILS(P_0, P_1, uv0, uv1)
+    points_4D = cv2.triangulatePoints(P_0, P_1, uv0, uv1).reshape((4, -1)).T
+    points_3D = (points_4D/points_4D[:, 3].reshape((-1, 1)))[:, :3]
 
     landmarks = []
-    for i, p in enumerate(points_3D):
-      landmarks.append(Landmark(t, p.reshape((3, 1)), keyp1[i].des))
+    for i, p in enumerate(points_3D.tolist()):
+      landmarks.append(Landmark(t, np.array(p).reshape((3, 1)), keyp1[i].des))
 
-    return np.argwhere(converged == 1).reshape((-1,)), landmarks
+    return landmarks
 
 
   def reprojection_error(self, landmarks_3D, landmarks_2D, K, norm='L1', T=np.eye(4)):

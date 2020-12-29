@@ -14,9 +14,9 @@ class Loader():
     self._name = name
     self._cfg = cfg
     self._bilateral_filter_params = {
-      'd': 3,
-      'sigmaColor': 1,
-      'sigmaSpace': 1
+      'd': 5,
+      'sigmaColor': 1.5,
+      'sigmaSpace': 1.5
     }
     self._camera, self._poses, self.image_paths = self._loadData()
     self._length = self._poses.shape[0] 
