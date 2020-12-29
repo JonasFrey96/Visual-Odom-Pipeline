@@ -14,14 +14,15 @@ class Pipeline():
     self._loader = loader
     self._K = loader.getCamera()
     # TODO: Configurable window size for Extractor and BundleAdjuster
+    self._ba_window_size = 3
     self._min_kp_dist = 7
     self._max_bidir_error = 300
-    self._max_reprojection_error = 1.5
-    self._min_landmark_angle = 1
+    self._max_reprojection_error = 2.0
+    self._min_landmark_angle = 0.5
     self._kp_method = 'shi-tomasi'
 
     self._extractor = Extractor(min_kp_dist=self._min_kp_dist)
-    self._bundle_adjuster = BundleAdjuster(verbosity=0, window_size=3)
+    self._bundle_adjuster = BundleAdjuster(verbosity=0, window_size=self._ba_window_size)
     self._visu = Visualizer(self._K)
     self._t_step = 1
     self._state, self._t_loader, self._tra_gt = self._get_init_state()
