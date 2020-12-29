@@ -15,7 +15,7 @@ class BundleAdjuster():
         self._max_err_reproj = max_err_reproj
         self._loss = loss
 
-    def _nonlinear_objective(self, x0, landmarks_kp, K):
+    def _nonlinear_objective(self, x0, landmarks_kp, K, num_poses):
         """
         Compute the total re-projection error using the last <window_size> frames.
         x0 contains landmark coordinates in XYZ, and camera poses <rvec, tvec>
@@ -25,11 +25,11 @@ class BundleAdjuster():
         :param K: 3x3 camera matrix
         :return: vector of dimension (n_landmarks*2*window_size vector) with the (x, y) differences
         """
-        pixel_diffs = np.zeros(len(landmarks_kp)*self._window_size*2)
+        pixel_diffs = np.zeros(len(landmarks_kp)*num_poses*2)
 
         P = x0[:len(landmarks_kp)*3].reshape((-1, 3))
         C = x0[len(landmarks_kp)*3:].reshape((-1, 6))
-        for i in range(self._window_size):
+        for i in range(num_poses):
             # Reconstruct transformation matrix from pose vector
             H_i = np.zeros((4, 4))
             H_i[:3, :3], _ = Rodrigues(C[i, :3])
@@ -63,7 +63,7 @@ class BundleAdjuster():
         P_new_homo = (M @ P_homo.T).T
         return (P_new_homo / P_new_homo[:, 2:3])[:, :2].reshape((-1,))
 
-    def _jacobian_sparsity(self, num_landmarks):
+    def _jacobian_sparsity(self, num_landmarks, num_poses):
         """
         Assuming we only optimize over camera poses and landmarks..
         x0 has dimension (n_landmarks*3 + n_poses*6), so..
@@ -75,17 +75,18 @@ class BundleAdjuster():
         Rows are alternating X, Y differences.
         :return:
         """
-        m = num_landmarks*self._window_size*2
-        n = num_landmarks*3 + self._window_size*6
+        m = num_landmarks*num_poses*2
+        n = num_landmarks*3 + num_poses*6
         A = lil_matrix((m, n), dtype=int)
 
         # TODO: check this
         for i in range(num_landmarks):
-            for j in range(self._window_size):
+            for j in range(num_poses):
+                # A[j*num_landmarks*2 + 2*i: j*num_landmarks*2 + 2*i + 2, 3*i: 3*i+3] = 1
                 A[2*(j*num_landmarks+i):2*(j*num_landmarks+i)+2, 3*i:3*i+3] = 1
 
-        for i in range(self._window_size):
-            A[2*num_landmarks*i:2*num_landmarks*(i+1), 3*num_landmarks + 6*i:6*i+6] = 1
+        for i in range(num_poses):
+            A[(2*num_landmarks*i):(2*num_landmarks*(i+1)), (3*num_landmarks)+(6*i):(3*num_landmarks)+(6*i)+6] = 1
 
         return A
 
@@ -96,13 +97,15 @@ class BundleAdjuster():
         from the <window_size> most recent frames."""
 
         # Filter the landmarks - only use those that have been tracked over the adjustment window
-        landmarks, landmarks_kp, landmarks_unused = [], [], []
+
+        landmarks, landmarks_kp, landmarks_unused, landmarks_kp_unused = [], [], [], []
         for i in range(len(state._landmarks)):
             l_kp = state._landmarks_kp[i]
             if len(l_kp.uv_history) >= self._window_size:
                 landmarks_kp.append(l_kp)
                 landmarks.append(state._landmarks[i])
             else:
+                landmarks_kp_unused.append(l_kp)
                 landmarks_unused.append(state._landmarks[i])
 
         if len(landmarks) > 0:
@@ -147,18 +150,21 @@ class BundleAdjuster():
                     x0[3*n_landmarks+6*i+3: 3*n_landmarks+6*i+6] = tvec.reshape((3,))
 
                 # Jacobian Sparsity
-                A = self._jacobian_sparsity(n_landmarks)
+                A = self._jacobian_sparsity(n_landmarks, num_poses=self._window_size)
 
-                # res = least_squares(self._nonlinear_objective, x0,
-                #                     verbose=self._verbosity,
-                #                     ftol=self._ftol, method=self._method,
-                #                     args=(landmarks_kp, K))
-                res = least_squares(self._nonlinear_objective, x0,
-                                    verbose=self._verbosity,
-                                    ftol=self._ftol, method=self._method,
-                                    xtol=self._xtol, loss=self._loss,
-                                    args=(landmarks_kp, K),
-                                    jac_sparsity=A, x_scale='jac')
+                if self._method == 'lm':
+                    res = least_squares(self._nonlinear_objective, x0,
+                                        verbose=self._verbosity,
+                                        ftol=self._ftol, method=self._method,
+                                        loss='linear', xtol=self._xtol,
+                                        args=(landmarks_kp, K, self._window_size))
+                elif self._method == 'trf':
+                    res = least_squares(self._nonlinear_objective, x0,
+                                        verbose=self._verbosity,
+                                        ftol=self._ftol, method=self._method,
+                                        xtol=self._xtol, loss=self._loss,
+                                        args=(landmarks_kp, K, self._window_size),
+                                        jac_sparsity=A, x_scale='jac')
 
                 # Extract refined landmarks and poses from optimization result
                 for i in range(len(landmarks)):
@@ -170,7 +176,6 @@ class BundleAdjuster():
                     H_i[:3, 3] = res.x[n_landmarks*3+6*i+3:n_landmarks*3+6*i+6].reshape((3,))
                     state._trajectory._poses[len(state._trajectory)-1-i] = H_i
 
-            state._landmarks = landmarks + landmarks_unused
-            return state
-        else:
-            return state
+        state._landmarks = landmarks+landmarks_unused
+        state._landmarks_kp = landmarks_kp+landmarks_kp_unused
+        return state
