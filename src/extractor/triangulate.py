@@ -4,7 +4,7 @@ from scipy.optimize import least_squares
 from scipy.sparse import lil_matrix
 
 class TriangulatorNL():
-    def __init__(self, ftol=1e-4, xtol=1e-3, method='trf', verbosity=2, loss='huber'):
+    def __init__(self, ftol=1e-4, xtol=1e-1, method='trf', verbosity=2, loss='huber'):
         self._ftol = ftol
         self._xtol = xtol
         self._method = method

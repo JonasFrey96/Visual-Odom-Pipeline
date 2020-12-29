@@ -5,7 +5,7 @@ from scipy.sparse import lil_matrix
 import logging
 
 class BundleAdjuster():
-    def __init__(self, xtol=1e-3, ftol=1e-4, method='trf', verbosity=2, loss='huber',
+    def __init__(self, xtol=1e-2, ftol=1e-4, method='trf', verbosity=2, loss='huber',
                  window_size=3, max_err_reproj=2.0):
         self._ftol = ftol
         self._xtol = xtol
@@ -149,7 +149,8 @@ class BundleAdjuster():
         #         observed_landmarks[j].append(i)
 
         n_landmarks_refine = len(refine_landmarks)
-        logging.info(f"Bundle adjusting {n_landmarks_refine} landmarks over last {self._window_size} frames")
+        logging.info(f"Bundle adjusting {n_landmarks_refine} landmarks over last "
+                     f"{self._window_size} frames. ({n_landmarks_active}/{n_landmarks_refine})")
 
         # Construct x0
         x0 = np.zeros((3*n_landmarks_refine + 6*self._window_size))

@@ -24,7 +24,6 @@ class Extractor():
                                   minDistance=min_kp_dist,
                                   blockSize=31)
 
-    self._ba_window_size = 999 #
     self._feature_method = 'sift'
     if self._feature_method == 'sift':
       self._features = cv2.SIFT_create()
@@ -56,8 +55,6 @@ class Extractor():
           k.uv = np.array([x, y]).reshape((2, 1))
           k.t_total += 1
           k.uv_history.append(np.array([x, y]).reshape((2, 1)))
-          if len(k.uv_history) > self._ba_window_size:
-            del k.uv_history[0]
           new_tracks.append(k)
 
     return new_tracks

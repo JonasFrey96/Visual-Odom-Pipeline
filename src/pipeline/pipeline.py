@@ -13,13 +13,14 @@ class Pipeline():
   def __init__(self, loader):
     self._loader = loader
     self._K = loader.getCamera()
-    # TODO: Configurable window size for Extractor and BundleAdjuster
-    self._ba_window_size = 10
-    self._ba_frequency = 3
+
+    # Pipeline Configuration Params
+    self._ba_window_size = 3
+    self._ba_frequency = 5
     self._min_kp_dist = 7
     self._max_bidir_error = np.inf
-    self._max_reprojection_error = 1.25
-    self._min_landmark_angle = 1.0
+    self._max_reprojection_error = 1.00
+    self._min_landmark_angle = 2.5
     self._kp_method = 'shi-tomasi'
 
     self._extractor = Extractor(min_kp_dist=self._min_kp_dist)
@@ -32,8 +33,9 @@ class Pipeline():
 
     self._extractor._im_prev = self._loader.getImage(self._t_loader)
 
-    self._visu.update(self._loader.getImage(self._t_loader), self._state)
+    self._visu.update(self._loader.getImage(self._t_loader), self._state, self._landmarks_dead)
     self._visu.render()
+    cv2.waitKey(0)
 
   def _get_init_state(self):
 
@@ -94,8 +96,8 @@ class Pipeline():
     self._state._candidates_kp = self._extractor.extend_tracks(im, self._state._candidates_kp, max_bidir_error=self._max_bidir_error)
 
     self._state._landmarks, self._state._landmarks_kp, landmarks_dead, landmarks_kp_dead = self._extractor.extend_landmarks(im, self._state._landmarks, self._state._landmarks_kp, max_bidir_error=self._max_bidir_error)
-    self._landmarks_dead += landmarks_dead
-    self._landmarks_kp_dead += landmarks_kp_dead
+    self._landmarks_dead += deepcopy(landmarks_dead)
+    self._landmarks_kp_dead += deepcopy(landmarks_kp_dead)
     self._extractor._im_prev = im.copy()
 
     # Alternative Method: Obtain 3D-2D Correspondences
@@ -121,8 +123,16 @@ class Pipeline():
                                               max_err_reproj=self._max_reprojection_error)
 
     # Remove bad landmarks (unused, outliers) and their keypoints
-    self._state._landmarks = [self._state._landmarks[i] for i in inliers]
-    self._state._landmarks_kp = [self._state._landmarks_kp[i] for i in inliers]
+    landmarks, landmarks_kp = [], []
+    for i in range(len(self._state._landmarks)):
+      if i in inliers:
+        landmarks.append(self._state._landmarks[i])
+        landmarks_kp.append(self._state._landmarks_kp[i])
+      else:
+        self._landmarks_dead.append(deepcopy(self._state._landmarks[i]))
+        self._landmarks_kp_dead.append(deepcopy(self._state._landmarks_kp[i]))
+    self._state._landmarks = landmarks
+    self._state._landmarks_kp = landmarks_kp
 
     # Update trajectory
     self._state._trajectory.append(self._t_step, H1)
@@ -141,7 +151,7 @@ class Pipeline():
 
     # Bundle Adjustment
     if self._t_step % self._ba_frequency == 0:
-      self._state, self._landmarks_dead, self._landmarks_kp_dead = self._bundle_adjuster.adjust(self._t_step, self._K, self._state, landmarks_dead, landmarks_kp_dead)
+      self._state, self._landmarks_dead, self._landmarks_kp_dead = self._bundle_adjuster.adjust(self._t_step, self._K, self._state, self._landmarks_dead, self._landmarks_kp_dead)
 
     # Detect new features and initialize new tracks
     self._state._candidates_kp += self._extractor.extract(im, self._t_step,
@@ -151,7 +161,7 @@ class Pipeline():
                                                           describe=False)
 
     # Update visualizer
-    self._visu.update(im, self._state)
+    self._visu.update(im, self._state, self._landmarks_dead)
     self._visu.render()
 
   def full_run(self):
