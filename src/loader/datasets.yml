@@ -7,9 +7,19 @@ parking:
   path: /media/scratch1/jonfrey/datasets_visual_odom/parking
   init: 
   - 0
-  - 10
-malaga:
+  - 2
+mala:
   path: /media/scratch1/jonfrey/datasets_visual_odom/malaga-urban-dataset-extract-07
   init: 
   - 0
   - 10
+roomtour:
+  path: /media/scratch1/jonfrey/datasets_visual_odom/roomtour
+  init: 
+  - 0
+  - 2
+stairway:
+  path: /media/scratch1/jonfrey/datasets_visual_odom/stairway
+  init: 
+  - 0
+  - 2

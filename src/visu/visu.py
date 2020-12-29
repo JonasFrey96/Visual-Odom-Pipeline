@@ -29,6 +29,7 @@ class Visualizer():
     self._tracked_px = []
     self._H_latest = np.eye(4)
     self._K = K
+    self._iter = 0
 
     self._fig = plt.figure(figsize=(12, 6))
 
@@ -110,7 +111,11 @@ class Visualizer():
     im_vis = np.fromstring(self._fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
     im_vis = im_vis.reshape(self._fig.canvas.get_width_height()[::-1] + (3,))
     im_vis = cv2.cvtColor(im_vis, cv2.COLOR_RGB2BGR)
+
     cv2.imshow("Visualization", im_vis)
+    idx = str(self._iter).zfill(6)
+    self._fig.savefig(os.path.join( self._p, f'out_{idx}.png'))
+    self._iter += 1
     plt.close('all')
     cv2.waitKey(1)
 

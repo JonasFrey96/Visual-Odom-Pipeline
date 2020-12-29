@@ -13,3 +13,14 @@ mala:
   init: 
   - 0
   - 10
+roomtour:
+  path: /media/carter/Samsung_T5/vo_data/roomtour
+  init: 
+  - 0
+  - 2
+
+stairway:
+  path: /media/carter/Samsung_T5/vo_data/stairway
+  init: 
+  - 0
+  - 2

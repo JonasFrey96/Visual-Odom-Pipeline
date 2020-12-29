@@ -13,8 +13,8 @@ coloredlogs.install(level='DEBUG')
 if __name__ == "__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument('--yaml-path', type=str, help='Name of dataset yaml file within loader directory.'
-                                                    'Used to set paths and configure the different datasets.')
-  parser.add_argument('--dataset', type=str, choices=['parking', 'malaga', 'kitti'], help='Name of dataset to use.')
+                                                    'Used to set paths and configure the different datasets.', default='datasets.yml')
+  parser.add_argument('--dataset', type=str, choices=['parking', 'malaga', 'kitti','roomtour', 'stairway'], help='Name of dataset to use.', default='stairway')
   args = parser.parse_args()
 
   # setup loader
