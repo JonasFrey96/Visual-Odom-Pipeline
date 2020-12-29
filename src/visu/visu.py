@@ -111,6 +111,7 @@ class Visualizer():
     im_vis = im_vis.reshape(self._fig.canvas.get_width_height()[::-1] + (3,))
     im_vis = cv2.cvtColor(im_vis, cv2.COLOR_RGB2BGR)
     cv2.imshow("Visualization", im_vis)
+    plt.close('all')
     cv2.waitKey(1)
 
 

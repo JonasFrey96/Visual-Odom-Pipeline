@@ -14,10 +14,11 @@ class Pipeline():
     self._loader = loader
     self._K = loader.getCamera()
     # TODO: Configurable window size for Extractor and BundleAdjuster
-    self._ba_window_size = 2
+    self._ba_window_size = 10
+    self._ba_frequency = 3
     self._min_kp_dist = 7
-    self._max_bidir_error = 150
-    self._max_reprojection_error = 2.0
+    self._max_bidir_error = np.inf
+    self._max_reprojection_error = 1.25
     self._min_landmark_angle = 1.0
     self._kp_method = 'shi-tomasi'
 
@@ -25,7 +26,10 @@ class Pipeline():
     self._bundle_adjuster = BundleAdjuster(verbosity=0, window_size=self._ba_window_size)
     self._visu = Visualizer(self._K)
     self._t_step = 1
+
+    self._landmarks_dead, self._landmarks_kp_dead = [], []
     self._state, self._t_loader, self._tra_gt = self._get_init_state()
+
     self._extractor._im_prev = self._loader.getImage(self._t_loader)
 
     self._visu.update(self._loader.getImage(self._t_loader), self._state)
@@ -53,7 +57,6 @@ class Pipeline():
       if match.trainIdx in i1_nm:
         i1_nm.remove(match.trainIdx)
 
-    kp0_nm = [kp0[i] for i in i0_nm]
     kp1_nm = [kp1[i] for i in i1_nm]
 
     # Estimate homography (bootstrapped baseline length set = 1)
@@ -90,7 +93,9 @@ class Pipeline():
     # Extend track lengths (Remove points that failed to track into current frame)
     self._state._candidates_kp = self._extractor.extend_tracks(im, self._state._candidates_kp, max_bidir_error=self._max_bidir_error)
 
-    self._state._landmarks, self._state._landmarks_kp = self._extractor.extend_landmarks(im, self._state._landmarks, self._state._landmarks_kp, max_bidir_error=self._max_bidir_error)
+    self._state._landmarks, self._state._landmarks_kp, landmarks_dead, landmarks_kp_dead = self._extractor.extend_landmarks(im, self._state._landmarks, self._state._landmarks_kp, max_bidir_error=self._max_bidir_error)
+    self._landmarks_dead += landmarks_dead
+    self._landmarks_kp_dead += landmarks_kp_dead
     self._extractor._im_prev = im.copy()
 
     # Alternative Method: Obtain 3D-2D Correspondences
@@ -122,9 +127,6 @@ class Pipeline():
     # Update trajectory
     self._state._trajectory.append(self._t_step, H1)
 
-    # Bundle Adjustment
-    self._state = self._bundle_adjuster.adjust(self._K, self._state)
-
     # Triangulate passable candidates
     landmarks_new, landmarks_kp_new, self._state._candidates_kp = self._extractor.triangulate_tracks(self._K,
                                                                                                     self._state._candidates_kp,
@@ -136,6 +138,10 @@ class Pipeline():
                                                                                                     refine=True)
     self._state._landmarks_kp += landmarks_kp_new
     self._state._landmarks += landmarks_new
+
+    # Bundle Adjustment
+    if self._t_step % self._ba_frequency == 0:
+      self._state, self._landmarks_dead, self._landmarks_kp_dead = self._bundle_adjuster.adjust(self._t_step, self._K, self._state, landmarks_dead, landmarks_kp_dead)
 
     # Detect new features and initialize new tracks
     self._state._candidates_kp += self._extractor.extract(im, self._t_step,
