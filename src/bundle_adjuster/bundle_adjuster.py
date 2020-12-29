@@ -5,12 +5,14 @@ from scipy.sparse import lil_matrix
 import logging
 
 class BundleAdjuster():
-    def __init__(self, xtol=1e-3, ftol=1e-4, method='trf', verbosity=2, window_size=3):
+    def __init__(self, xtol=1e-3, ftol=1e-4, method='trf', verbosity=2, window_size=3,
+                 max_err_reproj=2.0):
         self._ftol = ftol
         self._xtol = xtol
         self._method = method
         self._verbosity = verbosity
         self._window_size = window_size
+        self._max_err_reproj = max_err_reproj
 
     def _nonlinear_objective(self, x0, landmarks_kp, K):
         """
@@ -118,6 +120,13 @@ class BundleAdjuster():
                 x0[3*n_landmarks+6*i: 3*n_landmarks+6*i+3] = rvec.reshape((3,))
                 x0[3*n_landmarks+6*i+3: 3*n_landmarks+6*i+6] = tvec.reshape((3,))
 
+            # # Discard points with high re-projection error
+            # n_landmarks_init = len(landmarks)
+            # f0 = self._nonlinear_objective(x0, landmarks, K)
+            # good = f0 < self._max_err_reproj
+            # landmarks = [landmarks[i] for i in range(n_landmarks_init) if
+            #              good[i]]
+
             # Jacobian Sparsity
             A = self._jacobian_sparsity(n_landmarks)
 
@@ -132,9 +141,10 @@ class BundleAdjuster():
                                 args=(landmarks_kp, K),
                                 jac_sparsity=A, x_scale='jac')
 
-            # Build output
+            # Extract refined landmarks and poses from optimization result
             for i in range(len(landmarks)):
                 landmarks[i].p = res.x[3 * i:3 * i + 3].reshape((3, 1))
+            state._landmarks = landmarks + landmarks_unused
 
             for i in range(self._window_size):
                 H_i = np.eye(4)
