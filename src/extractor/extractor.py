@@ -8,6 +8,7 @@ from matplotlib import pyplot as plt
 from extractor.triangulate import TriangulatorNL
 from state.keypoint import Keypoint
 from state.landmark import Landmark
+import logging
 
 class Extractor():
   def __init__(self, cfg=None, min_kp_dist=10):
@@ -205,7 +206,7 @@ class Extractor():
     candidates_kp_new = [kp for kp in candidates_kp if kp.t_total < min_track_length]
 
     if len(landmarks_kp_tmp) > 0:
-
+      logging.info(f"Non-linearly triangulating {len(landmarks_kp_tmp)} keypoint pairs")
       H1 = trajectory[len(trajectory) - 1]
 
       # Triangulate keypoint tracks in groups based on their t_first
