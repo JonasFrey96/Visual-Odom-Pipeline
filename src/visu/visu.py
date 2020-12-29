@@ -74,6 +74,8 @@ class Visualizer():
     ax.set_xlim([0, self._im.shape[1]])
     ax.set_ylim([self._im.shape[0], 0])
     ax.legend(["Landmarks", "Candidates"], loc='lower right')
+    plt.xticks([])
+    plt.yticks([])
 
     # Plot Landmark history
     ax = self._fig.add_subplot(245)

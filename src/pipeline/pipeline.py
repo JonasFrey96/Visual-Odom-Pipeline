@@ -14,7 +14,13 @@ class Pipeline():
     self._loader = loader
     self._K = loader.getCamera()
     # TODO: Configurable window size for Extractor and BundleAdjuster
-    self._extractor = Extractor()
+    self._min_kp_dist = 7
+    self._max_bidir_error = 300
+    self._max_reprojection_error = 1.5
+    self._min_landmark_angle = 1
+    self._kp_method = 'shi-tomasi'
+
+    self._extractor = Extractor(min_kp_dist=self._min_kp_dist)
     self._bundle_adjuster = BundleAdjuster(verbosity=0, window_size=3)
     self._visu = Visualizer(self._K)
     self._t_step = 1
@@ -58,7 +64,9 @@ class Pipeline():
     kp1_m = [kp1_m[i] for i in inliers]
 
     # Triangulate inliers to create landmarks
-    landmarks, kp0_m, kp1_m = self._extractor.triangulate_nonlinear(self._K, H0, H1, kp0_m, kp1_m, self._t_step, max_err_reproj=0.5)
+    landmarks, kp0_m, kp1_m = self._extractor.triangulate_nonlinear(self._K, H0, H1,
+                                                                    kp0_m, kp1_m, self._t_step,
+                                                                    max_err_reproj=self._max_reprojection_error)
 
     # Build output landmarks and keypoint lists
     # kp0_m = [kp0_m[i] for i in converged]
@@ -79,16 +87,16 @@ class Pipeline():
     im, H_gt = self._loader.getFrame(self._t_loader)
 
     # Extend track lengths (Remove points that failed to track into current frame)
-    self._state._candidates_kp = self._extractor.extend_tracks(im, self._state._candidates_kp, max_bidir_error=300)
+    self._state._candidates_kp = self._extractor.extend_tracks(im, self._state._candidates_kp, max_bidir_error=self._max_bidir_error)
 
-    self._state._landmarks, self._state._landmarks_kp = self._extractor.extend_landmarks(im, self._state._landmarks, self._state._landmarks_kp, max_bidir_error=300)
+    self._state._landmarks, self._state._landmarks_kp = self._extractor.extend_landmarks(im, self._state._landmarks, self._state._landmarks_kp, max_bidir_error=self._max_bidir_error)
     self._extractor._im_prev = im.copy()
 
     # Alternative Method: Obtain 3D-2D Correspondences
     # # Detect new features and initialize new tracks
     # self._state._tracked_kp += self._extractor.extract(im, self._t_step,
     #                                                    self._state._tracked_kp,
-    #                                                    detector='custom',
+    #                                                    detector=self._kp_method,
     #                                                    mask_radius=10)
     # matches = self._extractor.match_lists(self._state._landmarks, self._state._tracked_kp)
 
@@ -104,7 +112,7 @@ class Pipeline():
 
     # Localize with tracked keypoints
     inliers, H1 = self._extractor.camera_pose(self._K, self._state._landmarks, self._state._landmarks_kp, corr='3D-2D',
-                                              max_err_reproj=1.0)
+                                              max_err_reproj=self._max_reprojection_error)
 
     # Remove bad landmarks (unused, outliers) and their keypoints
     self._state._landmarks = [self._state._landmarks[i] for i in inliers]
@@ -122,8 +130,8 @@ class Pipeline():
                                                                                                     self._state._trajectory,
                                                                                                     t_curr=self._t_step,
                                                                                                     min_track_length=3,
-                                                                                                    min_bearing_angle=0.5,
-                                                                                                    max_err_reproj=1.0,
+                                                                                                    min_bearing_angle=self._min_landmark_angle,
+                                                                                                    max_err_reproj=self._max_reprojection_error,
                                                                                                     refine=True)
     self._state._landmarks_kp += landmarks_kp_new
     self._state._landmarks += landmarks_new
@@ -131,8 +139,8 @@ class Pipeline():
     # Detect new features and initialize new tracks
     self._state._candidates_kp += self._extractor.extract(im, self._t_step,
                                                           self._state._landmarks_kp + self._state._candidates_kp,
-                                                          detector='shi-tomasi',
-                                                          mask_radius=10,
+                                                          detector=self._kp_method,
+                                                          mask_radius=self._min_kp_dist,
                                                           describe=False)
 
     # Update visualizer

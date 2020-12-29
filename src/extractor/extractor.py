@@ -10,7 +10,7 @@ from state.keypoint import Keypoint
 from state.landmark import Landmark
 
 class Extractor():
-  def __init__(self, cfg=None):
+  def __init__(self, cfg=None, min_kp_dist=10):
     self._cfg = cfg
     self._triangulate_nl = TriangulatorNL(verbosity=0)
     self._lk_params = dict(winSize=(31, 31),
@@ -18,10 +18,10 @@ class Extractor():
                            criteria=(
                            cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.03))
 
-    self._shitomasi_params = dict(maxCorners=100,
-                                qualityLevel=0.05,
-                                minDistance=5,
-                                blockSize=31)
+    self._shitomasi_params = dict(maxCorners=1000,
+                                  qualityLevel=0.1,
+                                  minDistance=min_kp_dist,
+                                  blockSize=51)
 
     self._ba_window_size = 999 #
     self._feature_method = 'sift'
@@ -118,17 +118,20 @@ class Extractor():
 
       # TODO: filter out keypoints with bad cornerness
 
-    if describe:
-      cv_kp, desc = self._features.compute(img, cv_kp)
-      kp = cv2.KeyPoint_convert(cv_kp)
-    else:
-      desc = np.zeros((kp.shape[0], 1))
+    if not isinstance(kp, type(None)):
+      if describe:
+        cv_kp, desc = self._features.compute(img, cv_kp)
+        kp = cv2.KeyPoint_convert(cv_kp)
+      else:
+        desc = np.zeros((kp.shape[0], 1))
 
-    # Build output
-    return [Keypoint(t_first=t, t_total=1, uv_first=kp[i, :].reshape((2, 1)),
-                     uv=kp[i, :].reshape((2, 1)), des=desc[i, :].reshape((-1, 1)),
-                     uv_history=[kp[i, :].reshape((2, 1))])
-            for i in range(len(kp))]
+      # Build output
+      return [Keypoint(t_first=t, t_total=1, uv_first=kp[i, :].reshape((2, 1)),
+                       uv=kp[i, :].reshape((2, 1)), des=desc[i, :].reshape((-1, 1)),
+                       uv_history=[kp[i, :].reshape((2, 1))])
+              for i in range(len(kp))]
+    else:
+      return []
 
   def match(self, desc_1, desc_2):
     if self._feature_method == 'sift':
@@ -181,8 +184,7 @@ class Extractor():
       retval, rvec, t, inliers = cv2.solvePnPRansac(kp_db_pts_3d, kp_curr_pts,
                                                     K, None, reprojectionError=max_err_reproj,
                                                     iterationsCount=1000000,
-                                                    confidence=0.99,
-                                                    flags=cv2.SOLVEPNP_P3P)
+                                                    confidence=0.99)
       R, _ = cv2.Rodrigues(rvec)
 
     H = np.eye(4)
@@ -204,36 +206,37 @@ class Extractor():
 
     if len(landmarks_kp_tmp) > 0:
 
-      # Triangulate keypoint tracks independently
-      H1 = trajectory[len(trajectory)-1]
-      for kp_1 in landmarks_kp_tmp:
-        kp_0 = Keypoint(kp_1.t_first, kp_1.t_total, kp_1.uv_first,
-                        kp_1.uv_first, kp_1.des, [kp_1.uv_first])
-        H0 = trajectory[kp_0.t_first]
+      H1 = trajectory[len(trajectory) - 1]
 
-        if refine:
-          l, kp_0, kp_1 = self.triangulate_nonlinear(K, H0, H1, [kp_0], [kp_1], t_curr, max_err_reproj=max_err_reproj)
+      # Triangulate keypoint tracks in groups based on their t_first
+      t_first_groups = set([k.t_first for k in landmarks_kp_tmp])
+      for t_first in t_first_groups:
+        kp_1 = [kp for kp in landmarks_kp_tmp
+                if kp.t_first == t_first]
 
-        else:
-          l = self.triangulate(K, H0, H1, [kp_0], [kp_1], t_curr)
+        H0 = trajectory[t_first]
+        kp_0 = deepcopy(kp_1)
+        for kp in kp_0:
+          kp.uv = kp.uv_first
+
+        l, kp_0, kp_1 = self.triangulate_nonlinear(K, H0, H1, kp_0, kp_1, t_curr, max_err_reproj=max_err_reproj)
 
         if len(l):
-          if refine:
             kp_1[0].uv_first = kp_0[0].uv
 
-          # Compute bearing angle: theta = cosinv((b^2 + c^2 - a^2) / (2bc))
-          # a = baseline
-          # b, c = dist to landmark at t0 and t1
-          Hrel = H1 @ np.linalg.inv(H0)
-          P_homo = np.concatenate([l[0].p, np.zeros((1, 1))], axis=0).reshape((4, 1))
-          a = np.linalg.norm(Hrel)
-          b = np.linalg.norm(H0 @ P_homo)
-          c = np.linalg.norm(H1 @ P_homo)
-          bearing_angle = np.rad2deg(np.arccos((b*b + c*c - a*a)/(2*b*c)))
+            # Compute bearing angle: theta = cosinv((b^2 + c^2 - a^2) / (2bc))
+            # a = baseline
+            # b, c = dist to landmark at t0 and t1
+            Hrel = H1 @ np.linalg.inv(H0)
+            P_homo = np.concatenate([l[0].p, np.zeros((1, 1))], axis=0).reshape((4, 1))
+            a = np.linalg.norm(Hrel)
+            b = np.linalg.norm(H0 @ P_homo)
+            c = np.linalg.norm(H1 @ P_homo)
+            bearing_angle = np.rad2deg(np.arccos((b*b + c*c - a*a)/(2*b*c)))
 
-          if (not np.isnan(bearing_angle)) and (bearing_angle > min_bearing_angle):
-            landmarks_new += l
-            landmarks_kp_new += kp_1
+            if (not np.isnan(bearing_angle)) and (bearing_angle > min_bearing_angle):
+              landmarks_new += l
+              landmarks_kp_new += kp_1
 
     return landmarks_new, landmarks_kp_new, candidates_kp_new
 

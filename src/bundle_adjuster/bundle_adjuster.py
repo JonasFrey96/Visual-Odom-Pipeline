@@ -5,8 +5,9 @@ from scipy.sparse import lil_matrix
 import logging
 
 class BundleAdjuster():
-    def __init__(self, ftol=1e-4, method='trf', verbosity=2, window_size=3):
+    def __init__(self, xtol=1e-3, ftol=1e-4, method='trf', verbosity=2, window_size=3):
         self._ftol = ftol
+        self._xtol = xtol
         self._method = method
         self._verbosity = verbosity
         self._window_size = window_size
@@ -21,7 +22,7 @@ class BundleAdjuster():
         :param K: 3x3 camera matrix
         :return: vector of dimension (n_landmarks*2*window_size vector) with the (x, y) differences
         """
-        pixel_diffs = np.zeros((len(landmarks_kp)*self._window_size))
+        pixel_diffs = np.zeros(len(landmarks_kp)*self._window_size*2)
 
         P = x0[:len(landmarks_kp)*3].reshape((-1, 3))
         C = x0[len(landmarks_kp)*3:].reshape((-1, 6))
@@ -35,9 +36,9 @@ class BundleAdjuster():
             kp_proj = self._project(K, H_i, P)
 
             # Assemble pixels
-            kp = np.array([k.uv_history[len(k.uv_history)-1-i].T for k in landmarks_kp]).reshape((-1, 2))
+            kp = np.array([k.uv_history[len(k.uv_history)-1-i].T for k in landmarks_kp]).reshape((-1,))
 
-            pixel_diffs[i*len(landmarks_kp):(i+1)*len(landmarks_kp)] = np.linalg.norm(kp_proj-kp, axis=1)
+            pixel_diffs[2*i*len(landmarks_kp):2*(i+1)*len(landmarks_kp)] = (kp_proj-kp).reshape((-1,))
 
         return pixel_diffs
 
@@ -57,7 +58,7 @@ class BundleAdjuster():
 
         # Projection, De-homogenization
         P_new_homo = (M @ P_homo.T).T
-        return (P_new_homo / P_new_homo[:, 2:3])[:, :2]
+        return (P_new_homo / P_new_homo[:, 2:3])[:, :2].reshape((-1,))
 
     def _jacobian_sparsity(self, num_landmarks):
         """
@@ -67,19 +68,21 @@ class BundleAdjuster():
         Return an (n_landmarks*window_size*2) x (n_landmarks*3 + n_poses*6)
         matrix indicating which optimization parameters affect which keypoints
 
-        first (n_landmarks*2) rows correspond to keypoints in the earliest timestep.
+        first (n_landmarks*2) rows correspond to keypoints in the latest timestep.
+        Rows are alternating X, Y differences.
         :return:
         """
-        m = num_landmarks*self._window_size
+        m = num_landmarks*self._window_size*2
         n = num_landmarks*3 + self._window_size*6
         A = lil_matrix((m, n), dtype=int)
 
+        # TODO: check this
         for i in range(num_landmarks):
             for j in range(self._window_size):
-                A[j*num_landmarks+i, 3*i:3*i+3] = 1
+                A[2*(j*num_landmarks+i):2*(j*num_landmarks+i)+2, 3*i:3*i+3] = 1
 
         for i in range(self._window_size):
-            A[:num_landmarks*i, 3*num_landmarks + 6*i:6*i+6] = 1
+            A[2*num_landmarks*i:2*num_landmarks*(i+1), 3*num_landmarks + 6*i:6*i+6] = 1
 
         return A
 
@@ -118,10 +121,17 @@ class BundleAdjuster():
             # Jacobian Sparsity
             A = self._jacobian_sparsity(n_landmarks)
 
-            res = least_squares(self._nonlinear_objective, x0, jac_sparsity=A,
-                                verbose=self._verbosity, x_scale='jac',
+            # res = least_squares(self._nonlinear_objective, x0,
+            #                     verbose=self._verbosity,
+            #                     ftol=self._ftol, method=self._method,
+            #                     args=(landmarks_kp, K))
+            res = least_squares(self._nonlinear_objective, x0,
+                                verbose=self._verbosity,
                                 ftol=self._ftol, method=self._method,
-                                args=(landmarks_kp, K))
+                                xtol=self._xtol,
+                                args=(landmarks_kp, K),
+                                jac_sparsity=A, x_scale='jac')
+
             # Build output
             for i in range(len(landmarks)):
                 landmarks[i].p = res.x[3 * i:3 * i + 3].reshape((3, 1))

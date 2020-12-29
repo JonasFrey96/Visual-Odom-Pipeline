@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 from scipy.optimize import least_squares
 from scipy.sparse import lil_matrix
-import logging
 
 class TriangulatorNL():
     def __init__(self, ftol=1e-4, method='trf', verbosity=2):
@@ -88,37 +87,39 @@ class TriangulatorNL():
         landmarks = [landmarks[i] for i in range(n_landmarks_init) if good[i]]
         keyp0 = [keyp0[i] for i in range(n_landmarks_init) if good[i]]
         keyp1 = [keyp1[i] for i in range(n_landmarks_init) if good[i]]
-        n_landmarks = len(landmarks)
-        if n_landmarks == 0:
-            return [], [], []
-
-        # Re-construct x0
-        x0 = np.zeros(n_landmarks*(3+4))
-        for i, (l, kp0, kp1) in enumerate(zip(landmarks, keyp0, keyp1)):
-            x0[3*i:3*i+3] = l.p.reshape((3,))
-            x0[(n_landmarks*3)+(4*i):(n_landmarks*3)+(4*i+2)] = kp0.uv.reshape((2,))
-            x0[(n_landmarks*3)+(4*i+2):(n_landmarks*3)+(4*i+4)] = kp1.uv.reshape((2,))
 
         # Jacobian Sparsity
-        A = self._jacobian_sparsity(n_landmarks)
+        n_landmarks = len(landmarks)
+        if n_landmarks:
+            A = self._jacobian_sparsity(n_landmarks)
 
-        res = least_squares(self._nonlinear_objective, x0, jac_sparsity=A,
-                            verbose=self._verbosity, x_scale='jac',
-                            ftol=self._ftol, method=self._method,
-                            args=(K, H0, H1))
-        # Build output
-        for i in range(len(landmarks)):
-            landmarks[i].p = res.x[3 * i:3 * i + 3].reshape((3, 1))
-            keyp0[i].uv = res.x[(n_landmarks*3)+(4*i):(n_landmarks*3)+(4*i+2)].reshape((2, 1))
-            keyp1[i].uv = res.x[(n_landmarks*3)+(4*i+2):(n_landmarks*3)+(4*i+4)].reshape((2, 1))
+            # Construct x0
+            x0 = np.zeros(n_landmarks*(3+4))
+            for i, (l, kp0, kp1) in enumerate(zip(landmarks, keyp0, keyp1)):
+                x0[3*i:3*i+3] = l.p.reshape((3,))
+                x0[(n_landmarks*3)+(4*i):(n_landmarks*3)+(4*i+2)] = kp0.uv.reshape((2,))
+                x0[(n_landmarks*3)+(4*i+2):(n_landmarks*3)+(4*i+4)] = kp1.uv.reshape((2,))
 
-        # Remove points with high re-projection error
-        good = res.fun < max_err_reproj
-        landmarks = [landmarks[i] for i in range(n_landmarks) if good[i]]
-        keyp0 = [keyp0[i] for i in range(n_landmarks) if good[i]]
-        keyp1 = [keyp1[i] for i in range(n_landmarks) if good[i]]
+            res = least_squares(self._nonlinear_objective, x0, jac_sparsity=A,
+                                verbose=self._verbosity, x_scale='jac',
+                                ftol=self._ftol, method=self._method,
+                                args=(K, H0, H1))
 
-        return landmarks, keyp0, keyp1
+            # Build output
+            for i in range(n_landmarks):
+                landmarks[i].p = res.x[3 * i:3 * i + 3].reshape((3, 1))
+                keyp0[i].uv = res.x[(n_landmarks*3)+(4*i):(n_landmarks*3)+(4*i+2)].reshape((2, 1))
+                keyp1[i].uv = res.x[(n_landmarks*3)+(4*i+2):(n_landmarks*3)+(4*i+4)].reshape((2, 1))
+
+            # Remove points with high re-projection error
+            good = res.fun < max_err_reproj
+            landmarks = [landmarks[i] for i in range(n_landmarks) if good[i]]
+            keyp0 = [keyp0[i] for i in range(n_landmarks) if good[i]]
+            keyp1 = [keyp1[i] for i in range(n_landmarks) if good[i]]
+
+            return landmarks, keyp0, keyp1
+        else:
+            return [], [], []
 
 
 """https://github.com/Eliasvan/Multiple-Quadrotor-SLAM/blob/master/Work/python_libs/triangulation.py"""
