@@ -23,3 +23,13 @@ stairway:
   init: 
   - 0
   - 2
+outdoor_loop:
+  path: /media/scratch1/jonfrey/datasets_visual_odom/outdoor_loop
+  init: 
+  - 0
+  - 2
+outdoor_street:
+  path: /media/scratch1/jonfrey/datasets_visual_odom/outdoor_street
+  init: 
+  - 0
+  - 2

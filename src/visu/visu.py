@@ -112,7 +112,7 @@ class Visualizer():
     im_vis = im_vis.reshape(self._fig.canvas.get_width_height()[::-1] + (3,))
     im_vis = cv2.cvtColor(im_vis, cv2.COLOR_RGB2BGR)
 
-    cv2.imshow("Visualization", im_vis)
+    #cv2.imshow("Visualization", im_vis)
     idx = str(self._iter).zfill(6)
     self._fig.savefig(os.path.join( self._p,f'out_{idx}.png'))
     self._iter += 1
