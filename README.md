@@ -57,3 +57,15 @@ If you are useing a headless machine (docker container), simply set the headless
 The results for each dataset will be generated in the results directory. 
 
 These insructions are tested on a linux workstation (Ubuntu 18.04 LTS, Intel i7-7820X, 32GB RAM, Nvidia GTX1080Ti) and laptop. 
+
+## Results:
+
+Converte images into gif
+```
+sudo apt install imagemagick
+cd results/kitti
+ffmpeg -r 10 -f image2 -s 1920x1080 -pattern_type glob -i 'out*.png'  -vcodec libx264 -crf 25  -pix_fmt yuv420p output.mp4
+ffmpeg -i output.mp4 -r 10 -vf scale=800:400 output.gif
+```
+
+![KITTI](https://github.com/JonasFrey96/Visual-Odom-Pipeline/blob/master/docs/kitti.gif)
