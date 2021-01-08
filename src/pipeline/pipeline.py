@@ -10,7 +10,7 @@ from bundle_adjuster import BundleAdjuster
 import cv2
 
 class Pipeline():
-  def __init__(self, loader):
+  def __init__(self, loader, headless):
     self._loader = loader
     self._K = loader.getCamera()
     # TODO: Configurable window size for Extractor and BundleAdjuster
@@ -23,7 +23,7 @@ class Pipeline():
 
     self._extractor = Extractor(min_kp_dist=self._min_kp_dist)
     self._bundle_adjuster = BundleAdjuster(verbosity=0, window_size=self._ba_window_size)
-    self._visu = Visualizer(self._K)
+    self._visu = Visualizer(self._K, name=self._loader._name, headless= headless)
     self._t_step = 1
     self._state, self._t_loader, self._tra_gt = self._get_init_state()
     self._extractor._im_prev = self._loader.getImage(self._t_loader)
