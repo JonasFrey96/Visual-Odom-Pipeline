@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from scipy.optimize import least_squares
 from scipy.sparse import lil_matrix
+from copy import deepcopy
 
 class TriangulatorNL():
     def __init__(self, ftol=1e-4, xtol=1e-1, method='trf', verbosity=2, loss='huber'):
@@ -25,7 +26,7 @@ class TriangulatorNL():
         x_kp = x0[n_landmarks*3:].reshape((-1, 4))
         x_proj = self._project_dual(P, K, H0, H1)
         diffs = x_kp - x_proj # Component-wise differences
-        return np.linalg.norm(diffs[:, :2], axis=1) + np.linalg.norm(diffs[:, 2:], axis=1)
+        return (np.linalg.norm(diffs[:, :2], axis=1) + np.linalg.norm(diffs[:, 2:], axis=1))/2
 
     def _project_dual(self, P, K, H0, H1):
         return np.hstack([self._project(K, H0, P), self._project(K, H1, P)])
@@ -71,9 +72,28 @@ class TriangulatorNL():
 
         return A
 
+    def _transform_landmarks(self, landmarks, H):
+        landmarks_out = []
+        for l in landmarks:
+            landmarks_out.append(deepcopy(l))
+            landmarks_out[-1].p = ((H @ np.concatenate([landmarks_out[-1].p, np.ones((1, 1))], axis=0))[:3]).reshape((3, 1))
+        return landmarks_out
+
     def refine(self, K, landmarks, H0, H1, keyp0, keyp1, max_err_reproj=4.0):
         """Non-linearly refine the results of a triangulation.
         Remove landmarks with high reprojection error."""
+
+        # Discard landmarks that are behind the camera (Z < 0)
+        landmarks_1 = self._transform_landmarks(landmarks, H1)
+        landmarks_new, keyp0_new, keyp1_new = [], [], []
+        for i, l in enumerate(landmarks_1):
+            if l.p[2] > 0:
+                landmarks_new.append(landmarks[i])
+                keyp0_new.append(keyp0[i])
+                keyp1_new.append(keyp1[i])
+        landmarks = landmarks_new
+        keyp0 = keyp0_new
+        keyp1 = keyp1_new
         n_landmarks_init = len(landmarks)
 
         # Construct x0
@@ -83,7 +103,7 @@ class TriangulatorNL():
             x0[(n_landmarks_init*3)+(4*i):(n_landmarks_init*3)+(4*i+2)] = kp0.uv.reshape((2,))
             x0[(n_landmarks_init*3)+(4*i+2):(n_landmarks_init*3)+(4*i+4)] = kp1.uv.reshape((2,))
 
-        # Discard points with high re-projection error
+        # Discard landmarks with high re-projection error
         f0 = self._nonlinear_objective(x0, K, H0, H1)
         good = f0 < max_err_reproj
         landmarks = [landmarks[i] for i in range(n_landmarks_init) if good[i]]

@@ -15,16 +15,18 @@ class Pipeline():
     self._K = loader.getCamera()
 
     # Pipeline Configuration Params
-    self._ba_window_size = 3
-    self._ba_frequency = 5
+    self._ba = False
+    self._ba_window_size = 4
+    self._ba_frequency = 1
     self._min_kp_dist = 7
     self._max_bidir_error = np.inf
-    self._max_reprojection_error = 1.00
-    self._min_landmark_angle = 2.5
+    self._max_reprojection_error = 2.0
+    self._min_landmark_angle = 0.10
     self._kp_method = 'shi-tomasi'
 
     self._extractor = Extractor(min_kp_dist=self._min_kp_dist)
-    self._bundle_adjuster = BundleAdjuster(verbosity=0, window_size=self._ba_window_size)
+    self._bundle_adjuster = BundleAdjuster(verbosity=0, window_size=self._ba_window_size,
+                                           method='trf', xtol=1e-3, ftol=1e-3)
     self._visu = Visualizer(self._K)
     self._t_step = 1
 
@@ -150,8 +152,8 @@ class Pipeline():
     self._state._landmarks += landmarks_new
 
     # Bundle Adjustment
-    if self._t_step % self._ba_frequency == 0:
-      self._state, self._landmarks_dead, self._landmarks_kp_dead = self._bundle_adjuster.adjust(self._t_step, self._K, self._state, self._landmarks_dead, self._landmarks_kp_dead)
+    if self._ba and (self._t_step % self._ba_frequency == 0):
+      self._state, self._landmarks_dead, self._landmarks_kp_dead = self._bundle_adjuster.adjust(self._state, self._landmarks_dead, self._landmarks_kp_dead, self._K, self._t_step)
 
     # Detect new features and initialize new tracks
     self._state._candidates_kp += self._extractor.extract(im, self._t_step,

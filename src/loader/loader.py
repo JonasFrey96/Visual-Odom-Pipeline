@@ -40,7 +40,7 @@ class Loader():
       self._poses[:,:3,:] = ar
       data = pd.read_csv(base+'/K.txt', header = None) 
       self._camera = data.to_numpy()[:3, :3]
-    elif self._name == 'roomtour':
+    elif self._name in ['roomtour', 'stairway', 'outdoor_street', 'outdoor_loop']:
       print(base, 'WORKING')
       p = base + '/images'
       self._image_paths = [str(p) for p in Path(p).rglob('*.png')]      

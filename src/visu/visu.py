@@ -56,9 +56,11 @@ class Visualizer():
     self._landmark_history.append(self._landmarks_kp_px.shape[0])
 
     # Store trajectory
-    H = state._trajectory[len(state._trajectory)-1]
-    position = H[:3, :3].T @ (-H[:3, 3].reshape((-1, 1)))
-    self._position_history.append(position)
+    self._position_history = []
+    for i in range(len(state._trajectory)):
+      H = state._trajectory[i]
+      position = H[:3, :3].T @ (-H[:3, 3].reshape((-1, 1)))
+      self._position_history.append(position)
 
     # Store active and inactive landmarks
     self._landmarks_3d = np.asarray([l.p.T for l in state._landmarks + landmarks_dead]).reshape((-1, 3))
@@ -107,12 +109,6 @@ class Visualizer():
     ax.scatter(traj[max([0, traj_len-20]):, 0], traj[max([0, traj_len-20]):, 2], s=10, c='blue', facecolor=None)
     ax.set_aspect("equal")
     ax.set_adjustable("datalim")
-    xlims, ylims = [np.min(traj[max([0, traj_len-20]):, 0])-2,
-                    np.max(traj[max([0, traj_len-20]):, 0])+2], \
-                   [np.min(traj[max([0, traj_len-20]):, 2])-2,
-                    np.max(traj[max([0, traj_len-20]):, 2])+2]
-
-
 
     self._fig.canvas.draw()
     im_vis = np.fromstring(self._fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
@@ -121,7 +117,7 @@ class Visualizer():
 
     cv2.imshow("Visualization", im_vis)
     idx = str(self._iter).zfill(6)
-    self._fig.savefig(os.path.join( self._p, f'out_{idx}.png'))
+    self._fig.savefig(os.path.join(self._p, f'out_{idx}.png'))
     self._iter += 1
     plt.close('all')
     cv2.waitKey(1)

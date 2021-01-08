@@ -20,13 +20,13 @@ class Extractor():
                            cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.03))
 
     self._shitomasi_params = dict(maxCorners=1000,
-                                  qualityLevel=0.05,
+                                  qualityLevel=0.03,
                                   minDistance=min_kp_dist,
                                   blockSize=31)
 
     self._feature_method = 'sift'
     if self._feature_method == 'sift':
-      self._features = cv2.SIFT_create()
+      self._features = cv2.SIFT_create(nfeatures=1000)
       self._sift_ratio = 0.80
     elif self._feature_method == 'orb':
       self._features = cv2.ORB_create()
@@ -183,7 +183,7 @@ class Extractor():
       retval, rvec, t, inliers = cv2.solvePnPRansac(kp_db_pts_3d, kp_curr_pts,
                                                     K, None, reprojectionError=max_err_reproj,
                                                     iterationsCount=1000000,
-                                                    confidence=0.99)
+                                                    confidence=0.9999)
       R, _ = cv2.Rodrigues(rvec)
 
     H = np.eye(4)
