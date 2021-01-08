@@ -18,17 +18,6 @@ roomtour:
   init: 
   - 0
   - 2
-
-stairway:
-  path: /media/carter/Samsung_T5/vo_data/stairway
-  init: 
-  - 0
-  - 2
-outdoor_loop:
-  path: /media/carter/Samsung_T5/vo_data/outdoor_loop
-  init: 
-  - 0
-  - 2
 outdoor_street:
   path: /media/carter/Samsung_T5/vo_data/outdoor_street
   init: 

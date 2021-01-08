@@ -45,10 +45,14 @@ class Loader():
       print(base, 'WORKING')
       p = base + '/images'
       self._image_paths = [str(p) for p in Path(p).rglob('*.png')]      
+      sub = 5
+      self._image_paths = self._image_paths[::sub]
+      
       self._poses = np.zeros( (len(self._image_paths),4,4) )
       self._poses[:,3,3] = 1
       data = pd.read_csv(base+'/K.txt', header = None) 
       self._camera = data.to_numpy()[:3, :3]
+      
 
     elif self._name == 'malaga':
       p = base + '/malaga-urban-dataset-extract-07_rectified_1024x768_Images'
