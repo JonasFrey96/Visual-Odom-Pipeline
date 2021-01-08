@@ -40,12 +40,11 @@ class Visualizer():
     return boolean indicating whether the pixel lies inside the image bounds"""
     return 0 <= uv[0] <= img_dims[0] and 0 <= uv[1] <= img_dims[1]
 
-  def update(self, im, state):
+  def update(self, im, state, landmarks_dead):
     """
     Update the state of the visualizer. K and pose are used to project
     the landmarks into the current image. Convert both landmark list and kp
     list to a list of pixel coordinates.
-
     Indices of the landmarks observed in the current frame are needed
     to avoid drawing out-of-frame landmarks.
     """
@@ -61,6 +60,9 @@ class Visualizer():
     H = state._trajectory[len(state._trajectory)-1]
     position = H[:3, :3].T @ (-H[:3, 3].reshape((-1, 1)))
     self._position_history.append(position)
+
+    # Store active and inactive landmarks
+    self._landmarks_3d = np.asarray([l.p.T for l in state._landmarks + landmarks_dead]).reshape((-1, 3))
 
     # Store pose for projecting landmarks
     self._H_latest = H
@@ -93,6 +95,13 @@ class Visualizer():
     ax.scatter(traj[:, 0], traj[:, 2], s=10, c='blue', facecolor=None)
     ax.set_aspect("equal")
     ax.set_adjustable("datalim")
+    xlims = ax.get_xlim()
+    ylims = ax.get_ylim()
+
+    # Draw landmarks in map
+    ax.scatter(self._landmarks_3d[:, 0], self._landmarks_3d[:, 2], s=0.5, c='green', facecolor=None, alpha=0.05)
+    ax.set_xlim(xlims)
+    ax.set_ylim(ylims)
 
     ax = self._fig.add_subplot(122)
     plt.title("Local Trajectory")
@@ -104,10 +113,7 @@ class Visualizer():
                    [np.min(traj[max([0, traj_len-20]):, 2])-2,
                     np.max(traj[max([0, traj_len-20]):, 2])+2]
 
-    # # Draw landmarks in map
-    # ax.scatter(landmarks_3d[:, 0], landmarks_3d[:, 2], s=2, c='green', facecolor=None)
-    # ax.set_ylim(ylims)
-    # ax.set_xlim(xlims)
+
 
     self._fig.canvas.draw()
     im_vis = np.fromstring(self._fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
