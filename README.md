@@ -21,7 +21,7 @@ Implementing a Visual Odometry Pipeline for the course Vison Algorithms for Mobi
 	- **visu** visualizer and image logger
 
 ## Architecture Overview:
-<img src="https://github.com/JonasFrey96/Visual-Odom-Pipeline/docs/Pipeline.svg">
+<img src="https://github.com/JonasFrey96/Visual-Odom-Pipeline/blob/master/docs/Pipeline.svg">
 
 
 ## Running the Code: 
