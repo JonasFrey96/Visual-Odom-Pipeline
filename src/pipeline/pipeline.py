@@ -10,24 +10,24 @@ from bundle_adjuster import BundleAdjuster
 import cv2
 
 class Pipeline():
-  def __init__(self, loader):
+  def __init__(self, loader, headless):
     self._loader = loader
     self._K = loader.getCamera()
 
     # Pipeline Configuration Params
-    self._ba = False
+    self._ba = True
     self._ba_window_size = 4
     self._ba_frequency = 1
     self._min_kp_dist = 7
     self._max_bidir_error = np.inf
     self._max_reprojection_error = 2.0
-    self._min_landmark_angle = 0.10
+    self._min_landmark_angle = 0.5
     self._kp_method = 'shi-tomasi'
 
     self._extractor = Extractor(min_kp_dist=self._min_kp_dist)
     self._bundle_adjuster = BundleAdjuster(verbosity=0, window_size=self._ba_window_size,
                                            method='trf', xtol=1e-3, ftol=1e-3)
-    self._visu = Visualizer(self._K)
+    self._visu = Visualizer(self._K, name=self._loader._name, headless= headless)
     self._t_step = 1
 
     self._landmarks_dead, self._landmarks_kp_dead = [], []

@@ -8,7 +8,7 @@ parking:
   init: 
   - 0
   - 2
-mala:
+malaga:
   path: /media/carter/Samsung_T5/vo_data/malaga-urban-dataset-extract-07
   init: 
   - 0
@@ -18,9 +18,8 @@ roomtour:
   init: 
   - 0
   - 2
-
-stairway:
-  path: /media/carter/Samsung_T5/vo_data/stairway
+outdoor_street:
+  path: /media/carter/Samsung_T5/vo_data/outdoor_street
   init: 
   - 0
   - 2

@@ -14,7 +14,8 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument('--yaml-path', type=str, help='Name of dataset yaml file within loader directory.'
                                                     'Used to set paths and configure the different datasets.', default='datasets.yml')
-  parser.add_argument('--dataset', type=str, choices=['parking', 'malaga', 'kitti','roomtour', 'stairway', 'outdoor_loop', 'outdoor_street'], help='Name of dataset to use.', default='stairway')
+  parser.add_argument('--dataset', type=str, choices=['parking', 'malaga', 'kitti','roomtour', 'outdoor_street'], help='Name of dataset to use.', default='kitti')
+  parser.add_argument('--headless', type=bool, help='Set if you are on a headless machine.', default=False)
   args = parser.parse_args()
 
   # setup loader
@@ -22,6 +23,6 @@ if __name__ == "__main__":
     doc = yaml.load(f, Loader=yaml.FullLoader)
   loader = Loader(args.dataset, doc)
   
-  pipeline = Pipeline(loader)
+  pipeline = Pipeline(loader, args.headless)
   pipeline.full_run()
 

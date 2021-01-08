@@ -8,7 +8,6 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
-
 class Visualizer():
   """
   Visualize state of the odometry pipeline.
@@ -16,9 +15,11 @@ class Visualizer():
   -Landmarks
   -Tracked Keypoints
   """
-  def __init__(self, K, path=None):
+  def __init__(self, K, path=None, name=None, headless=False):
     if path is None:
-      path = expanduser("~")+'/visu'
+      path = os.path.join ( os.getcwd() , 'results')
+      if name is not None: 
+        path = os.path.join ( path , name)
       Path(path).mkdir(parents=True, exist_ok=True)
     self._p = path
     self._im = None
@@ -30,7 +31,7 @@ class Visualizer():
     self._H_latest = np.eye(4)
     self._K = K
     self._iter = 0
-
+    self._headless = headless
     self._fig = plt.figure(figsize=(12, 6))
 
   def within_image(self, uv, img_dims):
@@ -43,7 +44,6 @@ class Visualizer():
     Update the state of the visualizer. K and pose are used to project
     the landmarks into the current image. Convert both landmark list and kp
     list to a list of pixel coordinates.
-
     Indices of the landmarks observed in the current frame are needed
     to avoid drawing out-of-frame landmarks.
     """
@@ -115,12 +115,16 @@ class Visualizer():
     im_vis = im_vis.reshape(self._fig.canvas.get_width_height()[::-1] + (3,))
     im_vis = cv2.cvtColor(im_vis, cv2.COLOR_RGB2BGR)
 
-    cv2.imshow("Visualization", im_vis)
+    if not self._headless:
+      
+      cv2.imshow("Visualization", im_vis)
+    
     idx = str(self._iter).zfill(6)
-    self._fig.savefig(os.path.join(self._p, f'out_{idx}.png'))
+    self._fig.savefig(os.path.join( self._p,f'out_{idx}.png'), dpi=600)
     self._iter += 1
-    plt.close('all')
     cv2.waitKey(1)
+    
+    plt.close( self._fig )
 
   # def plot_img(self, img, tag='img', store=True):
   #   pil_img = Image.fromarray( np.uint8(img) ,'RGB')
