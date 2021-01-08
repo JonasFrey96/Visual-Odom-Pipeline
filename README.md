@@ -60,7 +60,7 @@ These insructions are tested on a linux workstation (Ubuntu 18.04 LTS, Intel i7-
 
 ## Results:
 
-Converte images into gif
+Generate videos:
 ```
 sudo apt install imagemagick
 cd results/kitti
@@ -68,4 +68,5 @@ ffmpeg -r 10 -f image2 -s 1920x1080 -pattern_type glob -i 'out*.png'  -vcodec li
 ffmpeg -i output.mp4 -r 10 -vf scale=800:400 output.gif
 ```
 
+**Result Kitti Dataset:**
 ![KITTI](https://github.com/JonasFrey96/Visual-Odom-Pipeline/blob/master/docs/kitti.gif)

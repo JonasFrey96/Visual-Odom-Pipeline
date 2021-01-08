@@ -8,7 +8,6 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
-
 class Visualizer():
   """
   Visualize state of the odometry pipeline.
@@ -128,6 +127,8 @@ class Visualizer():
     self._fig.savefig(os.path.join( self._p,f'out_{idx}.png'), dpi=600)
     self._iter += 1
     cv2.waitKey(1)
+    
+    plt.close( self._fig )
 
   # def plot_img(self, img, tag='img', store=True):
   #   pil_img = Image.fromarray( np.uint8(img) ,'RGB')
