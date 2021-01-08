@@ -4,10 +4,12 @@ from scipy.optimize import least_squares
 from scipy.sparse import lil_matrix
 
 class TriangulatorNL():
-    def __init__(self, ftol=1e-4, method='trf', verbosity=2):
+    def __init__(self, ftol=1e-4, xtol=1e-1, method='trf', verbosity=2, loss='huber'):
         self._ftol = ftol
+        self._xtol = xtol
         self._method = method
         self._verbosity = verbosity
+        self._loss = loss
 
     def _nonlinear_objective(self, x0, K, H0, H1):
         """
@@ -103,6 +105,8 @@ class TriangulatorNL():
             res = least_squares(self._nonlinear_objective, x0, jac_sparsity=A,
                                 verbose=self._verbosity, x_scale='jac',
                                 ftol=self._ftol, method=self._method,
+                                xtol=self._xtol,
+                                loss=self._loss,
                                 args=(K, H0, H1))
 
             # Build output

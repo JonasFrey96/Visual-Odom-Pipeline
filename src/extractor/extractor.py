@@ -7,6 +7,7 @@ from matplotlib import pyplot as plt
 from extractor.triangulate import TriangulatorNL
 from state.keypoint import Keypoint
 from state.landmark import Landmark
+import logging
 
 class Extractor():
   def __init__(self, cfg=None, min_kp_dist=10):
@@ -18,11 +19,10 @@ class Extractor():
                            cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.03))
 
     self._shitomasi_params = dict(maxCorners=1000,
-                                  qualityLevel=0.1,
+                                  qualityLevel=0.05,
                                   minDistance=min_kp_dist,
-                                  blockSize=51)
+                                  blockSize=31)
 
-    self._ba_window_size = 999 #
     self._feature_method = 'sift'
     if self._feature_method == 'sift':
       self._features = cv2.SIFT_create()
@@ -54,8 +54,6 @@ class Extractor():
           k.uv = np.array([x, y]).reshape((2, 1))
           k.t_total += 1
           k.uv_history.append(np.array([x, y]).reshape((2, 1)))
-          if len(k.uv_history) > self._ba_window_size:
-            del k.uv_history[0]
           new_tracks.append(k)
 
     return new_tracks
@@ -69,24 +67,25 @@ class Extractor():
     d = abs(p0 - p0r).reshape(-1, 2).max(-1)
     good = d < max_bidir_error
     landmarks_new, kp_new = [], []
+    landmarks_dead, kp_dead = [], []
 
     p1 = p1.reshape((-1, 2)).tolist()
     for i in range(len(landmarks)):
       l, k, (x, y), good_flag = landmarks[i], landmarks_kp[i], p1[i], good[i]
-      if not good_flag:
+      if (not good_flag) or not (0 <= x <= im_curr.shape[1] and 0 <= y <= im_curr.shape[0]):
+        landmarks_dead.append(l)
+        kp_dead.append(k)
         continue
-
-      if 0 <= x <= im_curr.shape[1] and 0 <= y <= im_curr.shape[0]:
+      else:
         k.uv = np.array([x, y]).reshape((2, 1))
         k.t_total += 1
         k.uv_history.append(np.array([x, y]).reshape((2, 1)))
+        l.t_latest += 1
 
-        if len(k.uv_history) > self._ba_window_size:
-          del k.uv_history[0]
         kp_new.append(deepcopy(k))
         landmarks_new.append(l)
 
-    return landmarks_new, kp_new
+    return landmarks_new, kp_new, landmarks_dead, kp_dead
 
   def extract(self, img, t, current_kp=[], detector='custom', mask_radius=5,
               describe=False):
@@ -204,7 +203,7 @@ class Extractor():
     candidates_kp_new = [kp for kp in candidates_kp if kp.t_total < min_track_length]
 
     if len(landmarks_kp_tmp) > 0:
-
+      logging.info(f"Non-linearly triangulating {len(landmarks_kp_tmp)} keypoint pairs")
       H1 = trajectory[len(trajectory) - 1]
 
       # Triangulate keypoint tracks in groups based on their t_first
@@ -221,7 +220,10 @@ class Extractor():
         l, kp_0, kp_1 = self.triangulate_nonlinear(K, H0, H1, kp_0, kp_1, t_curr, max_err_reproj=max_err_reproj)
 
         if len(l):
-            kp_1[0].uv_first = kp_0[0].uv
+            # # Update landmark kp's - remove history of the kp track, since there was no landmar
+            # for kp in kp_1:
+            #   kp.uv = kp.uv_first
+            #   kp.uv_history = [deepcopy(kp.uv)]
 
             # Compute bearing angle: theta = cosinv((b^2 + c^2 - a^2) / (2bc))
             # a = baseline
@@ -263,8 +265,8 @@ class Extractor():
     uv1 = np.array([kp.uv.T for kp in keyp1]).astype(np.float32).reshape((-1, 1, 2))
 
     # Construct projection matrices
-    P_0 = (K @ H0[:3,:]).astype(np.float32)
-    P_1 = (K @ H1[:3,:]).astype(np.float32)
+    P_0 = (K @ H0[:3, :]).astype(np.float32)
+    P_1 = (K @ H1[:3, :]).astype(np.float32)
     points_4D = cv2.triangulatePoints(P_0, P_1, uv0, uv1).reshape((4, -1)).T
     points_3D = (points_4D/points_4D[:, 3].reshape((-1, 1)))[:, :3]
 
