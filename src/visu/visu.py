@@ -120,7 +120,7 @@ class Visualizer():
       cv2.imshow("Visualization", im_vis)
     
     idx = str(self._iter).zfill(6)
-    self._fig.savefig(os.path.join( self._p,f'out_{idx}.png'), dpi=600)
+    self._fig.savefig(os.path.join( self._p,f'out_{idx}.png'), dpi=150)
     self._iter += 1
     cv2.waitKey(1)
     

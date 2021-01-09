@@ -68,5 +68,34 @@ ffmpeg -r 10 -f image2 -s 1920x1080 -pattern_type glob -i 'out*.png'  -vcodec li
 ffmpeg -i output.mp4 -r 10 -vf scale=800:400 output.gif
 ```
 
+**Result Parking Dataset:**
+![parking](https://github.com/JonasFrey96/Visual-Odom-Pipeline/blob/master/docs/parking.gif)
 **Result Kitti Dataset:**
-![KITTI](https://github.com/JonasFrey96/Visual-Odom-Pipeline/blob/master/docs/kitti.gif)
+![kitti](https://github.com/JonasFrey96/Visual-Odom-Pipeline/blob/master/docs/kitti.gif)
+**Result Malaga Dataset:**
+![malaga](https://github.com/JonasFrey96/Visual-Odom-Pipeline/blob/master/docs/malaga.gif)
+
+
+
+**Result Outdoor_Street Dataset:**
+![outdoor_street](https://github.com/JonasFrey96/Visual-Odom-Pipeline/blob/master/docs/outdoor_street.gif)
+**Result Roomtour Dataset:**
+![roomtour](https://github.com/JonasFrey96/Visual-Odom-Pipeline/blob/master/docs/roomtour.gif)
+
+
+
+## Costume Datasets:
+We uploaded the recorded datasets to PolyBox
+Simple download the dataset to a desired location and put the correct path into the configuration file as for the other datasets.
+
+If you are on linux the following commands will download the dataset and untar it.
+```
+wget -O outdoor_street.tar https://polybox.ethz.ch/index.php/s/GuK0NI5lHXmRqu8/download
+wget -O roomtour.tar https://polybox.ethz.ch/index.php/s/5AGLBNuDsn1T0pu/download
+tar -xvf outdoor_street.tar
+tar -xvf roomtour.tar
+```
+- Outdoor_Street: https://polybox.ethz.ch/index.php/s/GuK0NI5lHXmRqu8
+- Roomtour: https://polybox.ethz.ch/index.php/s/5AGLBNuDsn1T0pu
+
+
