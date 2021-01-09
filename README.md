@@ -1,9 +1,9 @@
 # Visual-Odom-Pipeline
-Implementing a Visual Odometry Pipeline for the course Vison Algorithms for Mobile Robotics by Prof. Dr. Davide Scaramuzza ETH Zurich
+Implementing a Visual Odometry pipeline for the course Vision Algorithms for Mobile Robotics by Prof. Dr. Davide Scaramuzza.
 
 ## Repository Overview:
 - **docs** report images and result GIFs
-- **notebooks** notebook for prototyping
+- **notebooks** notebooks for prototyping
 - **results**
 	- kitti
 	- mala
@@ -46,7 +46,7 @@ conda activate vo
 The location of the datasets is provided in the datasets.yml. 
 Simply modify the paths within the yaml file.
 Always provide the path to the main folder of each dataset. 
-For using our custom dataset please follow the instruction in the costume dataset instructions section. 
+For using our custom dataset please follow the instruction in the custom dataset instructions section. 
 
 5. Run pipeline
 Simply select the dataset with the dataset flag ['parking', 'malaga', 'kitti','roomtour', 'outdoor_street']
@@ -97,8 +97,8 @@ ffmpeg -i output.mp4 -r 10 -vf scale=800:400 output.gif
 
 
 ## Custom Datasets:
-We uploaded the recorded datasets to PolyBox
-Simple download the dataset to a desired location and put the correct path into the configuration file as for the other datasets.
+We uploaded the recorded datasets to PolyBox.
+Simply download the dataset to the desired location and put the correct path into the configuration file (datasets.yml) as for the other datasets.
 
 If you are on linux the following commands will download the dataset and untar it.
 ```
